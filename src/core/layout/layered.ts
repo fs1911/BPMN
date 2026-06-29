@@ -224,6 +224,8 @@ function assignCoordinates(
     }
   }
 
+  straightenChains(ranks, adj, backEdges, model, y, opts.nodeSep);
+
   // Commit positions: x = column center - width/2; y already center.
   for (let r = 0; r < ranks.length; r++) {
     for (const id of ranks[r]) {
@@ -253,6 +255,44 @@ export function fitLabelSizes(model: BpmnModel, scope: string): void {
     const height = Math.max(70, Math.min(150, lines * 16 + 30));
     n.bounds.width = Math.round(width);
     n.bounds.height = Math.round(height);
+  }
+}
+
+/**
+ * Straighten chains: align a node that has exactly one forward predecessor to
+ * that predecessor's centre, when doing so does not collide with its rank
+ * siblings (and, in lanes, stays inside the band). Turns the dominant flow into
+ * straight horizontal runs — the Signavio look.
+ */
+function straightenChains(
+  ranks: string[][],
+  adj: Adjacency,
+  backEdges: Set<string>,
+  model: BpmnModel,
+  y: Record<string, number>,
+  nodeSep: number,
+  clamp?: (id: string, v: number) => number,
+): void {
+  for (let pass = 0; pass < 3; pass++) {
+    for (let r = 1; r < ranks.length; r++) {
+      const rank = ranks[r];
+      const order = [...rank].sort((a, b) => y[a] - y[b]);
+      const idx: Record<string, number> = {};
+      order.forEach((id, i) => (idx[id] = i));
+      for (const id of rank) {
+        const ins = (adj.incoming[id] ?? []).filter((e) => !backEdges.has(e.id));
+        if (ins.length !== 1) continue;
+        let target = y[ins[0].source];
+        if (clamp) target = clamp(id, target);
+        const h = model.nodes[id].bounds.height;
+        const i = idx[id];
+        const prev = order[i - 1];
+        const next = order[i + 1];
+        const lo = prev ? y[prev] + model.nodes[prev].bounds.height / 2 + nodeSep + h / 2 : -Infinity;
+        const hi = next ? y[next] - model.nodes[next].bounds.height / 2 - nodeSep - h / 2 : Infinity;
+        if (target >= lo && target <= hi) y[id] = target;
+      }
+    }
   }
 }
 
@@ -425,6 +465,21 @@ function layoutWithLanes(
       for (const lid of laneIds) resolveOverlap(byLane[lid] ?? [], model, yCenter, opts.nodeSep);
     }
   }
+
+  // Straighten chains within each lane band (keeps the main flow horizontal).
+  const clampToBand = (id: string, v: number): number => {
+    const lid = laneOf[id];
+    const half = model.nodes[id].bounds.height / 2;
+    const lo = laneTop[lid] + opts.nodeSep + half;
+    const hi = laneTop[lid] + laneHeight[lid] - opts.nodeSep - half;
+    return Math.min(hi, Math.max(lo, v));
+  };
+  const sameLaneAdj: Adjacency = { outgoing: {}, incoming: {} };
+  for (const id of Object.keys(adj.outgoing)) {
+    sameLaneAdj.outgoing[id] = (adj.outgoing[id] ?? []).filter((e) => laneOf[e.target] === laneOf[id]);
+    sameLaneAdj.incoming[id] = (adj.incoming[id] ?? []).filter((e) => laneOf[e.source] === laneOf[id]);
+  }
+  straightenChains(ranks, sameLaneAdj, backEdges, model, yCenter, opts.nodeSep, clampToBand);
 
   for (let r = 0; r < ranks.length; r++) {
     for (const id of ranks[r]) {
