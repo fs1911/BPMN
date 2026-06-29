@@ -6,6 +6,7 @@ import {
   createEdge,
   createLane,
   createNode,
+  createParticipant,
   emptyModel,
 } from "../model";
 import { validate } from "../validation";
@@ -43,6 +44,10 @@ export function mapIrToModel(ir: ProcessIR): MappingResult {
   const laneByRole: Record<string, string> = {};
   const useLanes = ir.roles.length > 0 || ir.systems.length > 0;
   if (useLanes) {
+    // bpmn-js renders lanes only inside a pool (participant), so wrap the
+    // process in a participant whenever we use swimlanes. A clean generic pool
+    // name reads better than a sentence fragment derived from the input.
+    createParticipant(model, { name: de ? "Prozess" : "Process", processRef: model.rootProcessId });
     for (const role of ir.roles) {
       const lane = createLane(model, { name: role, parent: model.rootProcessId });
       laneByRole[role] = lane.id;

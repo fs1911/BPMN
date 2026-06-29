@@ -421,9 +421,12 @@ function extractRole(text: string): string | undefined {
 function extractObject(text: string): string | undefined {
   const m =
     text.match(/approval (?:of|for) (?:the )?([\w ]+?)(?: by| before| after|\.|$)/i) ??
-    text.match(/(?:freigabe|genehmigung) (?:der |des |für )?([\wäöüß ]+?)(?: durch| vor| nach|\.|$)/i);
-  if (m) return m[1].trim();
-  return undefined;
+    text.match(/(?:freigabe|genehmigung) (?:der |des |für )([\wäöüß ]+?)(?: durch| vor| nach|\.|$)/i);
+  if (!m) return undefined;
+  const obj = m[1].trim();
+  // Reject prepositions / role markers that aren't real objects.
+  if (/^(durch|vom|von|den|der|die|das|by|the|a|an)\b/i.test(obj)) return undefined;
+  return obj;
 }
 
 function extractActivityName(text: string): string | undefined {

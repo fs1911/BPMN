@@ -150,9 +150,19 @@ export function segment(input: string): Array<{ text: string; role?: string }> {
 }
 
 function normalizeRole(s: string): string {
-  return s
-    .trim()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return cleanRole(s);
+}
+
+/** Strip leading articles and surrounding noise, then title-case. */
+function cleanRole(s: string): string {
+  let t = s.trim();
+  // remove leading articles repeatedly (der/die/das/den/dem/ein…, the/a/an)
+  for (;;) {
+    const next = t.replace(/^(?:der|die|das|den|dem|des|ein|eine|einen|einem|the|a|an)\s+/i, "");
+    if (next === t) break;
+    t = next;
+  }
+  return capitalize(t.trim());
 }
 
 function detectRole(text: string, fallback?: string): string | undefined {
@@ -162,7 +172,7 @@ function detectRole(text: string, fallback?: string): string | undefined {
   if (by) {
     const cand = by[1].trim();
     const hit = ROLE_HINTS.find((r) => cand.includes(r));
-    if (hit) return capitalize(extractRolePhrase(cand, hit));
+    if (hit) return cleanRole(extractRolePhrase(cand, hit));
   }
   // "the X verb" / "der X verb" with EN+DE verb stems
   for (const r of ROLE_HINTS) {
@@ -171,14 +181,14 @@ function detectRole(text: string, fallback?: string): string | undefined {
       "i",
     );
     const m = lower.match(re);
-    if (m) return capitalize(m[1].trim());
+    if (m) return cleanRole(m[1].trim());
   }
   // Language-agnostic fallback: any role hint present in the clause.
   for (const r of ROLE_HINTS) {
     const idx = lower.indexOf(r);
     if (idx >= 0) {
       const phrase = lower.slice(Math.max(0, idx - 14), idx + r.length);
-      return capitalize(extractRolePhrase(phrase.trim(), r));
+      return cleanRole(extractRolePhrase(phrase.trim(), r));
     }
   }
   return fallback;
@@ -387,8 +397,16 @@ export function extractIR(input: string): ProcessIR {
 }
 
 function deriveTitle(input: string): string {
-  const first = input.trim().split(/\r?\n/)[0].replace(/[.:].*$/, "");
-  return capitalize(first.split(/\s+/).slice(0, 6).join(" ")) || "Generated Process";
+  let first = input.trim().split(/\r?\n/)[0];
+  // drop a leading conditional clause ("Wenn …, " / "When …, ")
+  if (/^(wenn|when|falls|sobald|als)\b/i.test(first) && first.includes(",")) {
+    first = first.slice(first.indexOf(",") + 1);
+  }
+  first = first.replace(/[.:,].*$/, "").trim();
+  // strip leading articles/connectors
+  first = first.replace(/^(?:der|die|das|den|dem|ein|eine|the|a|an|so|also|im grunde)\s+/i, "");
+  const words = first.split(/\s+/).filter(Boolean).slice(0, 4).join(" ");
+  return capitalize(words) || (/[äöüß]|\b(der|die|das|und)\b/i.test(input) ? "Prozess" : "Process");
 }
 
 function deriveStartName(input: string, lang: "de" | "en"): string {

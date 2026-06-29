@@ -13,6 +13,9 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
+    "@bpmn-io/properties-panel": "^3.46.0",
+    "bpmn-js": "^17.11.1",
+    "bpmn-js-properties-panel": "^5.60.0",
     "fast-xml-parser": "^4.5.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

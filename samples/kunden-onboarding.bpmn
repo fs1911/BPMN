@@ -1,120 +1,121 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_1" targetNamespace="http://flowcraft/bpmn">
-  <bpmn:process id="Process_ai" name="Eine Neue Kundenanfrage Geht Beim Vertrieb" isExecutable="true">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1jfny" name="Prozess" processRef="Process_ai" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_ai" name="Neue Kundenanfrage Geht Beim" isExecutable="true">
     <bpmn:laneSet id="LaneSet_Process_ai">
-      <bpmn:lane id="Lane_1jzmt" name="Neue Kunde">
-        <bpmn:flowNodeRef>startEvent_1pzmt</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>userTask_1qzmt</bpmn:flowNodeRef>
+      <bpmn:lane id="Lane_1kfny" name="Neue Kunde">
+        <bpmn:flowNodeRef>startEvent_1pfny</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>userTask_1qfny</bpmn:flowNodeRef>
       </bpmn:lane>
-      <bpmn:lane id="Lane_1kzmt" name="Die Kunde">
-        <bpmn:flowNodeRef>userTask_1szmt</bpmn:flowNodeRef>
+      <bpmn:lane id="Lane_1lfny" name="Kunde">
+        <bpmn:flowNodeRef>userTask_1sfny</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>endEvent_24fnz</bpmn:flowNodeRef>
       </bpmn:lane>
-      <bpmn:lane id="Lane_1lzmt" name="Buchhaltung">
-        <bpmn:flowNodeRef>userTask_1uzmt</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>exclusiveGateway_1wzmt</bpmn:flowNodeRef>
+      <bpmn:lane id="Lane_1mfny" name="Buchhaltung">
+        <bpmn:flowNodeRef>userTask_1ufnz</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>exclusiveGateway_1wfnz</bpmn:flowNodeRef>
       </bpmn:lane>
-      <bpmn:lane id="Lane_1mzmt" name="Abteilungsleiter">
-        <bpmn:flowNodeRef>userTask_1yzmt</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>exclusiveGateway_20zmt</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>endEvent_22zmt</bpmn:flowNodeRef>
+      <bpmn:lane id="Lane_1nfny" name="Abteilungsleiter">
+        <bpmn:flowNodeRef>userTask_1yfnz</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>exclusiveGateway_20fnz</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>endEvent_22fnz</bpmn:flowNodeRef>
       </bpmn:lane>
-      <bpmn:lane id="Lane_1nzmt" name="Das Kunde">
-        <bpmn:flowNodeRef>endEvent_24zmt</bpmn:flowNodeRef>
-      </bpmn:lane>
-      <bpmn:lane id="Lane_1ozmt" name="System" />
+      <bpmn:lane id="Lane_1ofny" name="System" />
     </bpmn:laneSet>
-    <bpmn:startEvent id="startEvent_1pzmt" name="Prozess gestartet" />
-    <bpmn:userTask id="userTask_1qzmt" name="Neue Kundenanfrage geht beim Vertrieb ein" />
-    <bpmn:userTask id="userTask_1szmt" name="Vertrieb sammelt die Kundenunterlagen" />
-    <bpmn:userTask id="userTask_1uzmt" name="Buchhaltung prüft die Unterlagen für KYC" />
-    <bpmn:exclusiveGateway id="exclusiveGateway_1wzmt" name="Die Prüfung scheitert?" />
-    <bpmn:userTask id="userTask_1yzmt" name="Freigabe erteilen" />
-    <bpmn:exclusiveGateway id="exclusiveGateway_20zmt" name="Freigegeben?" default="sequenceFlow_23zmt" />
-    <bpmn:endEvent id="endEvent_22zmt" name="Anforderung abgelehnt" />
-    <bpmn:endEvent id="endEvent_24zmt" name="System legt das Kundenkonto an und der" />
-    <bpmn:sequenceFlow id="sequenceFlow_1rzmt" name="" sourceRef="startEvent_1pzmt" targetRef="userTask_1qzmt" />
-    <bpmn:sequenceFlow id="sequenceFlow_1tzmt" name="" sourceRef="userTask_1qzmt" targetRef="userTask_1szmt" />
-    <bpmn:sequenceFlow id="sequenceFlow_1vzmt" name="" sourceRef="userTask_1szmt" targetRef="userTask_1uzmt" />
-    <bpmn:sequenceFlow id="sequenceFlow_1xzmt" name="" sourceRef="userTask_1uzmt" targetRef="exclusiveGateway_1wzmt" />
-    <bpmn:sequenceFlow id="sequenceFlow_1zzmt" name="ja" sourceRef="exclusiveGateway_1wzmt" targetRef="userTask_1yzmt" />
-    <bpmn:sequenceFlow id="sequenceFlow_21zmt" name="" sourceRef="userTask_1yzmt" targetRef="exclusiveGateway_20zmt" />
-    <bpmn:sequenceFlow id="sequenceFlow_23zmt" name="abgelehnt" sourceRef="exclusiveGateway_20zmt" targetRef="endEvent_22zmt">
+    <bpmn:startEvent id="startEvent_1pfny" name="Prozess gestartet" />
+    <bpmn:userTask id="userTask_1qfny" name="Neue Kundenanfrage geht beim Vertrieb ein" />
+    <bpmn:userTask id="userTask_1sfny" name="Vertrieb sammelt die Kundenunterlagen" />
+    <bpmn:userTask id="userTask_1ufnz" name="Buchhaltung prüft die Unterlagen für KYC" />
+    <bpmn:exclusiveGateway id="exclusiveGateway_1wfnz" name="Die Prüfung scheitert?" />
+    <bpmn:userTask id="userTask_1yfnz" name="Freigabe erteilen" />
+    <bpmn:exclusiveGateway id="exclusiveGateway_20fnz" name="Freigegeben?" default="sequenceFlow_23fnz" />
+    <bpmn:endEvent id="endEvent_22fnz" name="Anforderung abgelehnt" />
+    <bpmn:endEvent id="endEvent_24fnz" name="System legt das Kundenkonto an und der" />
+    <bpmn:sequenceFlow id="sequenceFlow_1rfny" name="" sourceRef="startEvent_1pfny" targetRef="userTask_1qfny" />
+    <bpmn:sequenceFlow id="sequenceFlow_1tfnz" name="" sourceRef="userTask_1qfny" targetRef="userTask_1sfny" />
+    <bpmn:sequenceFlow id="sequenceFlow_1vfnz" name="" sourceRef="userTask_1sfny" targetRef="userTask_1ufnz" />
+    <bpmn:sequenceFlow id="sequenceFlow_1xfnz" name="" sourceRef="userTask_1ufnz" targetRef="exclusiveGateway_1wfnz" />
+    <bpmn:sequenceFlow id="sequenceFlow_1zfnz" name="ja" sourceRef="exclusiveGateway_1wfnz" targetRef="userTask_1yfnz" />
+    <bpmn:sequenceFlow id="sequenceFlow_21fnz" name="" sourceRef="userTask_1yfnz" targetRef="exclusiveGateway_20fnz" />
+    <bpmn:sequenceFlow id="sequenceFlow_23fnz" name="abgelehnt" sourceRef="exclusiveGateway_20fnz" targetRef="endEvent_22fnz">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${rejected}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="sequenceFlow_25zmt" name="freigegeben" sourceRef="exclusiveGateway_20zmt" targetRef="endEvent_24zmt" />
-    <bpmn:sequenceFlow id="sequenceFlow_26zmt" name="nein" sourceRef="exclusiveGateway_1wzmt" targetRef="userTask_1uzmt">
+    <bpmn:sequenceFlow id="sequenceFlow_25fnz" name="freigegeben" sourceRef="exclusiveGateway_20fnz" targetRef="endEvent_24fnz" />
+    <bpmn:sequenceFlow id="sequenceFlow_26fnz" name="nein" sourceRef="exclusiveGateway_1wfnz" targetRef="userTask_1ufnz">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${no}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_ai">
-      <bpmndi:BPMNShape id="Lane_1jzmt_di" bpmnElement="Lane_1jzmt" isHorizontal="true">
-        <dc:Bounds x="30" y="60" width="1332" height="180" />
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1jfny_di" bpmnElement="Participant_1jfny" isHorizontal="true">
+        <dc:Bounds x="30" y="60" width="1332" height="900" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_1kzmt_di" bpmnElement="Lane_1kzmt" isHorizontal="true">
-        <dc:Bounds x="30" y="240" width="1332" height="180" />
+      <bpmndi:BPMNShape id="Lane_1kfny_di" bpmnElement="Lane_1kfny" isHorizontal="true">
+        <dc:Bounds x="60" y="60" width="1302" height="180" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_1lzmt_di" bpmnElement="Lane_1lzmt" isHorizontal="true">
-        <dc:Bounds x="30" y="420" width="1332" height="180" />
+      <bpmndi:BPMNShape id="Lane_1lfny_di" bpmnElement="Lane_1lfny" isHorizontal="true">
+        <dc:Bounds x="60" y="240" width="1302" height="180" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_1mzmt_di" bpmnElement="Lane_1mzmt" isHorizontal="true">
-        <dc:Bounds x="30" y="600" width="1332" height="180" />
+      <bpmndi:BPMNShape id="Lane_1mfny_di" bpmnElement="Lane_1mfny" isHorizontal="true">
+        <dc:Bounds x="60" y="420" width="1302" height="180" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_1nzmt_di" bpmnElement="Lane_1nzmt" isHorizontal="true">
-        <dc:Bounds x="30" y="780" width="1332" height="180" />
+      <bpmndi:BPMNShape id="Lane_1nfny_di" bpmnElement="Lane_1nfny" isHorizontal="true">
+        <dc:Bounds x="60" y="600" width="1302" height="180" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_1ozmt_di" bpmnElement="Lane_1ozmt" isHorizontal="true">
-        <dc:Bounds x="30" y="960" width="1332" height="180" />
+      <bpmndi:BPMNShape id="Lane_1ofny_di" bpmnElement="Lane_1ofny" isHorizontal="true">
+        <dc:Bounds x="60" y="780" width="1302" height="180" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="startEvent_1pzmt_di" bpmnElement="startEvent_1pzmt">
+      <bpmndi:BPMNShape id="startEvent_1pfny_di" bpmnElement="startEvent_1pfny">
         <dc:Bounds x="60" y="132" width="36" height="36" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="userTask_1qzmt_di" bpmnElement="userTask_1qzmt">
+      <bpmndi:BPMNShape id="userTask_1qfny_di" bpmnElement="userTask_1qfny">
         <dc:Bounds x="176" y="110" width="120" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="userTask_1szmt_di" bpmnElement="userTask_1szmt">
+      <bpmndi:BPMNShape id="userTask_1sfny_di" bpmnElement="userTask_1sfny">
         <dc:Bounds x="376" y="290" width="120" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="userTask_1uzmt_di" bpmnElement="userTask_1uzmt">
+      <bpmndi:BPMNShape id="userTask_1ufnz_di" bpmnElement="userTask_1ufnz">
         <dc:Bounds x="576" y="470" width="120" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="exclusiveGateway_1wzmt_di" bpmnElement="exclusiveGateway_1wzmt">
+      <bpmndi:BPMNShape id="exclusiveGateway_1wfnz_di" bpmnElement="exclusiveGateway_1wfnz">
         <dc:Bounds x="776" y="485" width="50" height="50" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="userTask_1yzmt_di" bpmnElement="userTask_1yzmt">
+      <bpmndi:BPMNShape id="userTask_1yfnz_di" bpmnElement="userTask_1yfnz">
         <dc:Bounds x="906" y="650" width="120" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="exclusiveGateway_20zmt_di" bpmnElement="exclusiveGateway_20zmt">
+      <bpmndi:BPMNShape id="exclusiveGateway_20fnz_di" bpmnElement="exclusiveGateway_20fnz">
         <dc:Bounds x="1106" y="665" width="50" height="50" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="endEvent_22zmt_di" bpmnElement="endEvent_22zmt">
+      <bpmndi:BPMNShape id="endEvent_22fnz_di" bpmnElement="endEvent_22fnz">
         <dc:Bounds x="1236" y="672" width="36" height="36" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="endEvent_24zmt_di" bpmnElement="endEvent_24zmt">
-        <dc:Bounds x="1236" y="852" width="36" height="36" />
+      <bpmndi:BPMNShape id="endEvent_24fnz_di" bpmnElement="endEvent_24fnz">
+        <dc:Bounds x="1236" y="312" width="36" height="36" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="sequenceFlow_1rzmt_di" bpmnElement="sequenceFlow_1rzmt">
+      <bpmndi:BPMNEdge id="sequenceFlow_1rfny_di" bpmnElement="sequenceFlow_1rfny">
         <di:waypoint x="96" y="150" />
         <di:waypoint x="176" y="150" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="sequenceFlow_1tzmt_di" bpmnElement="sequenceFlow_1tzmt">
+      <bpmndi:BPMNEdge id="sequenceFlow_1tfnz_di" bpmnElement="sequenceFlow_1tfnz">
         <di:waypoint x="296" y="150" />
         <di:waypoint x="370" y="150" />
         <di:waypoint x="370" y="330" />
         <di:waypoint x="376" y="330" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="sequenceFlow_1vzmt_di" bpmnElement="sequenceFlow_1vzmt">
+      <bpmndi:BPMNEdge id="sequenceFlow_1vfnz_di" bpmnElement="sequenceFlow_1vfnz">
         <di:waypoint x="496" y="330" />
         <di:waypoint x="570" y="330" />
         <di:waypoint x="570" y="490" />
         <di:waypoint x="576" y="490" />
         <di:waypoint x="576" y="494" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="sequenceFlow_1xzmt_di" bpmnElement="sequenceFlow_1xzmt">
+      <bpmndi:BPMNEdge id="sequenceFlow_1xfnz_di" bpmnElement="sequenceFlow_1xfnz">
         <di:waypoint x="696" y="510" />
         <di:waypoint x="776" y="510" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="sequenceFlow_1zzmt_di" bpmnElement="sequenceFlow_1zzmt">
+      <bpmndi:BPMNEdge id="sequenceFlow_1zfnz_di" bpmnElement="sequenceFlow_1zfnz">
         <di:waypoint x="791" y="535" />
         <di:waypoint x="791" y="550" />
         <di:waypoint x="790" y="550" />
@@ -122,28 +123,28 @@
         <di:waypoint x="966" y="640" />
         <di:waypoint x="966" y="650" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="sequenceFlow_21zmt_di" bpmnElement="sequenceFlow_21zmt">
+      <bpmndi:BPMNEdge id="sequenceFlow_21fnz_di" bpmnElement="sequenceFlow_21fnz">
         <di:waypoint x="1026" y="690" />
         <di:waypoint x="1106" y="690" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="sequenceFlow_23zmt_di" bpmnElement="sequenceFlow_23zmt">
+      <bpmndi:BPMNEdge id="sequenceFlow_23fnz_di" bpmnElement="sequenceFlow_23fnz">
         <di:waypoint x="1156" y="680" />
         <di:waypoint x="1230" y="680" />
         <di:waypoint x="1230" y="690" />
         <di:waypoint x="1236" y="690" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="sequenceFlow_25zmt_di" bpmnElement="sequenceFlow_25zmt">
-        <di:waypoint x="1141" y="715" />
-        <di:waypoint x="1141" y="730" />
-        <di:waypoint x="1140" y="730" />
-        <di:waypoint x="1140" y="840" />
-        <di:waypoint x="1254" y="840" />
-        <di:waypoint x="1254" y="852" />
+      <bpmndi:BPMNEdge id="sequenceFlow_25fnz_di" bpmnElement="sequenceFlow_25fnz">
+        <di:waypoint x="1141" y="665" />
+        <di:waypoint x="1141" y="660" />
+        <di:waypoint x="1140" y="660" />
+        <di:waypoint x="1140" y="360" />
+        <di:waypoint x="1254" y="360" />
+        <di:waypoint x="1254" y="348" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="sequenceFlow_26zmt_di" bpmnElement="sequenceFlow_26zmt">
+      <bpmndi:BPMNEdge id="sequenceFlow_26fnz_di" bpmnElement="sequenceFlow_26fnz">
         <di:waypoint x="811" y="535" />
-        <di:waypoint x="811" y="924" />
-        <di:waypoint x="660" y="924" />
+        <di:waypoint x="811" y="766" />
+        <di:waypoint x="660" y="766" />
         <di:waypoint x="660" y="550" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>

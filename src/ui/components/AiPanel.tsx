@@ -28,7 +28,7 @@ export function AiPanel() {
         <div className="ai-generate">
           <h4>Prozess beschreiben</h4>
           <textarea value={text} rows={8} onChange={(e) => setText(e.target.value)} placeholder="Arbeitsanweisung, E-Mail, Besprechungsnotizen oder Schrittliste einfügen…" />
-          <button disabled={busy} onClick={() => store.getState().generate(text)}>BPMN-Entwurf generieren</button>
+          <button disabled={busy} onClick={() => void store.getState().generate(text)}>{busy ? "Generiere…" : "BPMN-Entwurf generieren"}</button>
 
           <h4>Per Anweisung aktualisieren</h4>
           <div className="row">
@@ -38,16 +38,16 @@ export function AiPanel() {
               onChange={(e) => setInstruction(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && instruction.trim()) {
-                  store.getState().instruct(instruction.trim());
+                  void store.getState().instruct(instruction.trim());
                   setInstruction("");
                 }
               }}
             />
-            <button onClick={() => { if (instruction.trim()) { store.getState().instruct(instruction.trim()); setInstruction(""); } }}>Anwenden</button>
+            <button disabled={busy} onClick={() => { if (instruction.trim()) { void store.getState().instruct(instruction.trim()); setInstruction(""); } }}>Anwenden</button>
           </div>
           <div className="quick-cmds">
             {["Nachbearbeitungsschleife für unvollständige Dokumente erstellen", "Ausnahmepfad hinzufügen, wenn die Genehmigung fehlt", "Einkauf und Finanzen in separate Bahnen aufteilen"].map((c) => (
-              <button key={c} className="chip" onClick={() => store.getState().instruct(c)}>{c}</button>
+              <button key={c} className="chip" disabled={busy} onClick={() => void store.getState().instruct(c)}>{c}</button>
             ))}
           </div>
 

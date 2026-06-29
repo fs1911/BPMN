@@ -5,31 +5,15 @@ import { summarize } from "@core/index";
 export function Toolbar() {
   const store = useEditor;
   const theme = useEditor((s) => s.theme);
-  const grid = useEditor((s) => s.grid);
-  const snap = useEditor((s) => s.snap);
   const issues = useEditor((s) => s.issues);
+  const busy = useEditor((s) => s.busy);
   const fileRef = useRef<HTMLInputElement>(null);
   const counts = summarize(issues);
-
-  const doExport = () => {
-    const xml = store.getState().exportXml();
-    const blob = new Blob([xml], { type: "application/xml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "process.bpmn";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   const doImport = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
-      try {
-        store.getState().importXml(String(reader.result));
-      } catch (err) {
-        alert("Import fehlgeschlagen: " + (err as Error).message);
-      }
+      store.getState().importXml(String(reader.result)).catch((err) => alert("Import fehlgeschlagen: " + err.message));
     };
     reader.readAsText(file);
   };
@@ -38,25 +22,23 @@ export function Toolbar() {
     <div className="toolbar">
       <span className="brand">FlowCraft<small> BPMN</small></span>
       <div className="tb-group">
-        <button onClick={() => store.getState().undo()} title="Rückgängig (Strg+Z)">↶ Rückgängig</button>
-        <button onClick={() => store.getState().redo()} title="Wiederholen (Strg+Y)">↷ Wiederholen</button>
+        <button onClick={() => store.getState().undo()} title="Rückgängig (Strg+Z)">↶</button>
+        <button onClick={() => store.getState().redo()} title="Wiederholen (Strg+Y)">↷</button>
       </div>
       <div className="tb-group">
-        <button onClick={() => store.getState().cleanupAll()} title="Auto-Layout + Kanten neu verlegen">Diagramm aufräumen</button>
-        <button onClick={() => store.getState().cleanupFlows()} title="Nur Kanten neu verlegen">Kanten aufräumen</button>
+        <button disabled={busy} onClick={() => store.getState().cleanupAll()} title="Auto-Layout + Kanten neu verlegen (FlowCraft-Engine)">
+          {busy ? "…" : "Diagramm aufräumen"}
+        </button>
+        <button disabled={busy} onClick={() => store.getState().cleanupFlowsOnly()} title="Nur Kanten neu verlegen">Kanten aufräumen</button>
       </div>
       <div className="tb-group">
-        <button onClick={() => store.getState().zoomBy(1.2)} title="Vergrößern">＋</button>
-        <button onClick={() => store.getState().zoomBy(1 / 1.2)} title="Verkleinern">－</button>
-        <button onClick={() => { store.getState().setZoom(1); store.getState().setPan({ x: 60, y: 60 }); }}>Ansicht zurücksetzen</button>
-      </div>
-      <div className="tb-group">
-        <button className={grid ? "on" : ""} onClick={() => store.getState().toggleGrid()}>Raster</button>
-        <button className={snap ? "on" : ""} onClick={() => store.getState().toggleSnap()}>Einrasten</button>
+        <button onClick={() => store.getState().zoomIn()} title="Vergrößern">＋</button>
+        <button onClick={() => store.getState().zoomOut()} title="Verkleinern">－</button>
+        <button onClick={() => store.getState().fit()} title="Einpassen">Einpassen</button>
       </div>
       <div className="tb-group">
         <button onClick={() => fileRef.current?.click()}>Importieren</button>
-        <button onClick={doExport}>BPMN exportieren</button>
+        <button onClick={() => store.getState().exportXml()}>BPMN exportieren</button>
         <input ref={fileRef} type="file" accept=".bpmn,.xml" hidden onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
       </div>
       <div className="tb-spacer" />

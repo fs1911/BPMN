@@ -353,15 +353,30 @@ function layoutWithLanes(
     }
   }
 
-  // Size and position lane shapes.
-  const laneX = opts.marginX - 30;
-  const laneW = totalWidth - laneX + 30;
+  // Size and position lane shapes. bpmn-js expects a 30px pool label gutter on
+  // the left, with lanes starting at participant.x + 30.
+  const POOL_GUTTER = 30;
+  const laneX = opts.marginX - 30 + POOL_GUTTER;
+  const laneW = totalWidth - (laneX - POOL_GUTTER) + 30 - POOL_GUTTER;
   for (const lid of laneIds) {
     model.lanes[lid].bounds = {
       x: laneX,
       y: laneTop[lid],
       width: laneW,
       height: laneHeight[lid],
+    };
+  }
+
+  // If a participant (pool) references this scope, wrap the lanes.
+  const participant = Object.values(model.participants).find((p) => p.processRef === scope);
+  if (participant && laneIds.length) {
+    const firstTop = laneTop[laneIds[0]];
+    const totalH = laneIds.reduce((acc, lid) => acc + laneHeight[lid], 0);
+    participant.bounds = {
+      x: laneX - POOL_GUTTER,
+      y: firstTop,
+      width: laneW + POOL_GUTTER,
+      height: totalH,
     };
   }
 }
