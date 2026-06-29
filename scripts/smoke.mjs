@@ -30,6 +30,14 @@ const genConns = await page.locator(".djs-element.djs-connection").count();
 console.log("generated shapes:", genShapes, "connections:", genConns);
 await page.screenshot({ path: "scripts/02-generated.png" });
 
+// Human-in-the-loop: a preview bar must appear; accept it.
+const previewVisible = await page.locator(".preview-bar").isVisible();
+console.log("preview bar visible:", previewVisible);
+await page.getByText("✓ Übernehmen").click();
+await page.waitForTimeout(300);
+const stillPreview = await page.locator(".preview-bar").count();
+console.log("preview after accept:", stillPreview);
+
 // Apply a German instruction
 await page.locator(".ai-generate .row input").fill("Eine Freigabe durch den Manager vor der Zahlung hinzufügen");
 await page.getByText("Anwenden", { exact: true }).click();
@@ -61,6 +69,10 @@ if (genShapes <= seedShapes || genConns < 4) {
 }
 if (afterShapes <= genShapes) {
   console.error("FAIL: instruction did not add elements");
+  process.exit(1);
+}
+if (!previewVisible || stillPreview !== 0) {
+  console.error("FAIL: AI preview bar did not appear/clear on accept");
   process.exit(1);
 }
 const realErrors = errors.filter((e) => !/favicon|404/.test(e));

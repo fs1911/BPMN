@@ -4,6 +4,7 @@ import { Toolbar } from "./components/Toolbar";
 import { Canvas } from "./components/Canvas";
 import { AiPanel } from "./components/AiPanel";
 import { ValidationPanel } from "./components/ValidationPanel";
+import { PreviewBar } from "./components/PreviewBar";
 
 export function App() {
   const theme = useEditor((s) => s.theme);
@@ -17,6 +18,7 @@ export function App() {
       <div className="workbench">
         <main className="stage">
           <Canvas />
+          <PreviewBar />
           <ValidationPanel />
         </main>
         <aside className="side">

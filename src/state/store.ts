@@ -26,6 +26,11 @@ interface EditorState {
   aiMessages: AiMessage[];
   aiBusy: boolean;
   busy: boolean;
+  /** an AI suggestion shown as a preview, awaiting accept/reject. */
+  pending?: { prevXml: string; description: string };
+
+  acceptPreview: () => void;
+  rejectPreview: () => Promise<void>;
 
   setModeler: (m: Modeler) => void;
   setReady: (r: boolean) => void;
@@ -127,22 +132,39 @@ export const useEditor = create<EditorState>((set, get) => ({
     await get().revalidate();
   },
 
+  acceptPreview: () =>
+    set((s) => ({
+      pending: undefined,
+      aiMessages: [...s.aiMessages, { role: "assistant", text: "✓ Vorschlag übernommen." }],
+    })),
+  rejectPreview: async () => {
+    const s = get();
+    const m = s.modeler;
+    if (!m || !s.pending) return;
+    await m.importXML(s.pending.prevXml);
+    m.get<any>("canvas").zoom("fit-viewport", "auto");
+    await get().revalidate();
+    set({ pending: undefined, aiMessages: [...get().aiMessages, { role: "assistant", text: "↩ Vorschlag verworfen, vorheriges Diagramm wiederhergestellt." }] });
+  },
+
   generate: async (text) => {
     const m = get().modeler;
     if (!m) return;
     set({ aiBusy: true, aiMessages: [...get().aiMessages, { role: "user", text }] });
     try {
+      const prevXml = await getXml(m);
       const { model, review } = ai.generateFromTextSync(text);
       await loadModelIntoModeler(m, model);
       await get().revalidate();
       set({
         aiReview: review,
         aiBusy: false,
+        pending: { prevXml, description: `Generierter Entwurf: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.loops.length} Schleife(n).` },
         aiMessages: [
           ...get().aiMessages,
           {
             role: "assistant",
-            text: `${Object.keys(model.nodes).length} Elemente generiert, ${review.roles.length} Rolle(n), ${review.decisions.length} Entscheidung(en), ${review.loops.length} Schleife(n). Konfidenz ${(review.confidence * 100).toFixed(0)} %.`,
+            text: `${Object.keys(model.nodes).length} Elemente generiert, ${review.roles.length} Rolle(n), ${review.decisions.length} Entscheidung(en), ${review.loops.length} Schleife(n). Konfidenz ${(review.confidence * 100).toFixed(0)} %. Vorschau – bitte übernehmen oder verwerfen.`,
           },
         ],
       });
@@ -159,16 +181,24 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!m) return;
     set({ aiBusy: true });
     try {
+      const prevXml = await getXml(m);
       const model = await getModelFromModeler(m);
       const res = ai.applyInstruction(model, text);
       if (res.applied) await loadModelIntoModeler(m, model);
       await get().revalidate();
       set({
         aiBusy: false,
+        pending: res.applied ? { prevXml, description: res.description } : get().pending,
         aiMessages: [
           ...get().aiMessages,
           { role: "user", text },
-          { role: "assistant", text: res.description + (res.assumptions.length ? `\nAnnahmen: ${res.assumptions.join("; ")}` : "") },
+          {
+            role: "assistant",
+            text:
+              res.description +
+              (res.assumptions.length ? `\nAnnahmen: ${res.assumptions.join("; ")}` : "") +
+              (res.applied ? "\nVorschau – bitte übernehmen oder verwerfen." : ""),
+          },
         ],
       });
     } catch (err) {

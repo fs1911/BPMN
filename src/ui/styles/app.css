@@ -82,6 +82,20 @@ textarea { resize: vertical; }
 .bjs-properties { width: 300px; height: 100%; overflow: auto; border-left: 1px solid var(--border); background: var(--surface); }
 .bjs-properties:empty { display: none; }
 
+/* AI preview (human-in-the-loop) bar */
+.preview-bar {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; z-index: 6;
+  background: var(--surface); border: 1px solid var(--accent);
+  border-radius: 10px; padding: 8px 12px; box-shadow: var(--shadow);
+  max-width: 80%;
+}
+.pb-tag { background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; flex: none; }
+.pb-desc { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-actions { display: flex; gap: 6px; flex: none; }
+.pb-accept { background: #2e9e5b; color: #fff; border-color: #2e9e5b; }
+.pb-reject { background: var(--surface-2); }
+
 /* Validation overlay */
 .validation { position: absolute; left: 12px; bottom: 12px; max-height: 42%; width: 460px; max-width: 70%; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); font-size: 12px; z-index: 4; }
 .validation.ok { padding: 8px 14px; color: #2e9e5b; width: auto; font-weight: 600; }
