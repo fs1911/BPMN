@@ -118,7 +118,59 @@ function reduceCrossings(
       void fixed;
     }
   }
+
+  // Transpose: greedily swap adjacent nodes within a rank while it reduces the
+  // crossings with the neighbouring ranks. This is the classic Sugiyama refine
+  // step that removes the crossings the median heuristic leaves behind.
+  for (let pass = 0; pass < 4; pass++) {
+    let improved = false;
+    for (let r = 0; r < ranks.length; r++) {
+      const rank = ranks[r];
+      for (let i = 0; i < rank.length - 1; i++) {
+        const before =
+          (r > 0 ? layerCrossings(ranks[r - 1], rank, adj, backEdges, "down") : 0) +
+          (r < ranks.length - 1 ? layerCrossings(rank, ranks[r + 1], adj, backEdges, "down") : 0);
+        [rank[i], rank[i + 1]] = [rank[i + 1], rank[i]];
+        const after =
+          (r > 0 ? layerCrossings(ranks[r - 1], rank, adj, backEdges, "down") : 0) +
+          (r < ranks.length - 1 ? layerCrossings(rank, ranks[r + 1], adj, backEdges, "down") : 0);
+        if (after < before) improved = true;
+        else [rank[i], rank[i + 1]] = [rank[i + 1], rank[i]]; // revert
+      }
+    }
+    if (!improved) break;
+  }
+  ranks.forEach((rk) => rk.forEach((id, i) => (pos[id] = i)));
   return pos;
+}
+
+/** Crossings between two adjacent layers given their current order. */
+function layerCrossings(
+  upper: string[],
+  lower: string[],
+  adj: Adjacency,
+  backEdges: Set<string>,
+  _dir: "down",
+): number {
+  const posU: Record<string, number> = {};
+  upper.forEach((id, i) => (posU[id] = i));
+  const seq: number[] = [];
+  for (const v of lower) {
+    const ups = (adj.incoming[v] ?? [])
+      .filter((e) => !backEdges.has(e.id))
+      .map((e) => posU[e.source])
+      .filter((p) => p !== undefined)
+      .sort((a, b) => a - b);
+    seq.push(...ups);
+  }
+  // count inversions = crossings
+  let c = 0;
+  for (let i = 0; i < seq.length; i++) {
+    for (let j = i + 1; j < seq.length; j++) {
+      if (seq[i] > seq[j]) c++;
+    }
+  }
+  return c;
 }
 
 /** Barycenter y-coordinate assignment with overlap resolution. */
@@ -154,9 +206,11 @@ function assignCoordinates(
   const rankOf: Record<string, number> = {};
   ranks.forEach((rk, r) => rk.forEach((id) => (rankOf[id] = r)));
 
-  // Iterate: pull each node toward the average of its neighbors, then resolve
-  // overlaps within each rank by spreading around the mean.
-  for (let iter = 0; iter < 8; iter++) {
+  // Iterate: pull each node toward the median of its neighbours (robust to a
+  // single outlier neighbour — e.g. a join should centre on its branches, not be
+  // dragged off by one downstream node), then resolve overlaps within the rank.
+  // More passes => better convergence => straighter edges, fewer crossings.
+  for (let iter = 0; iter < 24; iter++) {
     const seq = iter % 2 === 0 ? [...ranks.keys()] : [...ranks.keys()].reverse();
     for (const r of seq) {
       for (const id of ranks[r]) {
@@ -164,9 +218,7 @@ function assignCoordinates(
           (e) => !backEdges.has(e.id),
         );
         const ns = edges.map((e) => (e.source === id ? e.target : e.source));
-        if (ns.length) {
-          y[id] = ns.reduce((acc, n) => acc + y[n], 0) / ns.length;
-        }
+        if (ns.length) y[id] = median(ns.map((n) => y[n]));
       }
       resolveOverlap(ranks[r], model, y, opts.nodeSep);
     }
@@ -180,6 +232,13 @@ function assignCoordinates(
       n.bounds.y = Math.round(y[id] - n.bounds.height / 2);
     }
   }
+}
+
+function median(xs: number[]): number {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
 /** Push apart nodes in a rank so vertical gaps respect nodeSep, keeping order. */

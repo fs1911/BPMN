@@ -3,6 +3,7 @@ import { routeScope } from "../src/core/routing/router";
 import { autoLayout } from "../src/core/layout";
 import { segmentIntersectsRect } from "../src/core/geometry/geometry";
 import { createEdge, createNode, emptyModel, resetIdCounter } from "../src/core/model";
+import { countCrossings } from "../src/core/geometry/geometry";
 import { buildSampleProcess } from "./helpers";
 
 function isOrthogonal(wps: { x: number; y: number }[]): boolean {
@@ -84,6 +85,29 @@ describe("orthogonal router", () => {
     // the back edge must dip below the content to avoid the forward flow
     expect(lowestY).toBeGreaterThanOrEqual(contentBottom);
     expect(isOrthogonal(back.waypoints!)).toBe(true);
+  });
+
+  it("keeps crossings low for a planar split/join (crossing minimisation)", () => {
+    resetIdCounter();
+    const m = emptyModel({ processId: "P" });
+    createNode(m, "startEvent", { id: "s" });
+    createNode(m, "parallelGateway", { id: "split" });
+    createNode(m, "userTask", { id: "a", name: "A" });
+    createNode(m, "userTask", { id: "b", name: "B" });
+    createNode(m, "userTask", { id: "c", name: "C" });
+    createNode(m, "parallelGateway", { id: "join" });
+    createNode(m, "endEvent", { id: "e" });
+    createEdge(m, "sequenceFlow", "s", "split");
+    for (const x of ["a", "b", "c"]) createEdge(m, "sequenceFlow", "split", x);
+    for (const x of ["a", "b", "c"]) createEdge(m, "sequenceFlow", x, "join");
+    createEdge(m, "sequenceFlow", "join", "e");
+    autoLayout(m, "P");
+    const wps = Object.values(m.edges).map((e) => e.waypoints!).filter(Boolean);
+    let crossings = 0;
+    for (let i = 0; i < wps.length; i++)
+      for (let j = i + 1; j < wps.length; j++) crossings += countCrossings(wps[i], wps[j]);
+    // 8 edges through two gateways: heuristic router keeps crossings minimal.
+    expect(crossings).toBeLessThanOrEqual(2);
   });
 
   it("keeps parallel flows on separate tracks (edge-aware routing)", () => {
