@@ -182,7 +182,7 @@ function addApproval(model: BpmnModel, res: InstructionResult, text: string): vo
     reject.lane = lane;
     pushRef(model, lane, reject.id);
   }
-  createEdge(model, "sequenceFlow", gw.id, reject.id, { name: de ? "abgelehnt" : "rejected", condition: "${rejected}", isDefault: true });
+  createEdge(model, "sequenceFlow", gw.id, reject.id, { name: de ? "abgelehnt" : "rejected", condition: "${rejected}" });
 
   res.applied = true;
   res.affected = [task.id, gw.id, reject.id];
@@ -289,7 +289,7 @@ function addExceptionPath(model: BpmnModel, res: InstructionResult, text: string
     excEnd.lane = anchor.lane;
     pushRef(model, anchor.lane, excEnd.id);
   }
-  const e2 = createEdge(model, "sequenceFlow", gw.id, excEnd.id, { name: cond, condition: `\${${slug(cond)}}`, isDefault: true });
+  const e2 = createEdge(model, "sequenceFlow", gw.id, excEnd.id, { name: cond, condition: `\${${slug(cond)}}` });
   res.applied = true;
   res.affected = [gw.id, excEnd.id, e2.id];
   res.description = de

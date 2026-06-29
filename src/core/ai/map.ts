@@ -218,7 +218,6 @@ function buildDecision(
     const e = createEdge(model, "sequenceFlow", gatewaySource, end.id, {
       name: ctx.lbl(negative.condition),
       condition: `\${${slug(negative.condition)}}`,
-      isDefault: true,
     });
     provenance[e.id] = `negative branch: ${negative.condition}`;
   }
