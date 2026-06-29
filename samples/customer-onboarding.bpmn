@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_1" targetNamespace="http://flowcraft/bpmn">
+  <bpmn:process id="Process_ai" name="A New Customer Request Is Received" isExecutable="true">
+    <bpmn:laneSet id="LaneSet_Process_ai">
+      <bpmn:lane id="Lane_17vnu" name="Sales">
+        <bpmn:flowNodeRef>startEvent_1cvnv</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>userTask_1dvnv</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>task_1fvnv</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_18vnv" name="Compliance Officer">
+        <bpmn:flowNodeRef>userTask_1hvnv</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>exclusiveGateway_1jvnv</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_19vnv" name="Manager">
+        <bpmn:flowNodeRef>userTask_1lvnv</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>exclusiveGateway_1nvnv</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>endEvent_1pvnv</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_1avnv" name="The Customer">
+        <bpmn:flowNodeRef>endEvent_1rvnv</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_1bvnv" name="System" />
+    </bpmn:laneSet>
+    <bpmn:startEvent id="startEvent_1cvnv" name="Request received">
+      <bpmn:messageEventDefinition />
+    </bpmn:startEvent>
+    <bpmn:userTask id="userTask_1dvnv" name="New customer request is received" />
+    <bpmn:task id="task_1fvnv" name="Sales agent collects the customer documents" />
+    <bpmn:userTask id="userTask_1hvnv" name="Compliance officer checks the documents for KYC" />
+    <bpmn:exclusiveGateway id="exclusiveGateway_1jvnv" name="Checks fail?" />
+    <bpmn:userTask id="userTask_1lvnv" name="Approve request" />
+    <bpmn:exclusiveGateway id="exclusiveGateway_1nvnv" name="Approved?" default="sequenceFlow_1qvnv" />
+    <bpmn:endEvent id="endEvent_1pvnv" name="Request rejected" />
+    <bpmn:endEvent id="endEvent_1rvnv" name="System creates the customer account and the" />
+    <bpmn:sequenceFlow id="sequenceFlow_1evnv" name="" sourceRef="startEvent_1cvnv" targetRef="userTask_1dvnv" />
+    <bpmn:sequenceFlow id="sequenceFlow_1gvnv" name="" sourceRef="userTask_1dvnv" targetRef="task_1fvnv" />
+    <bpmn:sequenceFlow id="sequenceFlow_1ivnv" name="" sourceRef="task_1fvnv" targetRef="userTask_1hvnv" />
+    <bpmn:sequenceFlow id="sequenceFlow_1kvnv" name="" sourceRef="userTask_1hvnv" targetRef="exclusiveGateway_1jvnv" />
+    <bpmn:sequenceFlow id="sequenceFlow_1mvnv" name="yes" sourceRef="exclusiveGateway_1jvnv" targetRef="userTask_1lvnv" />
+    <bpmn:sequenceFlow id="sequenceFlow_1ovnv" name="" sourceRef="userTask_1lvnv" targetRef="exclusiveGateway_1nvnv" />
+    <bpmn:sequenceFlow id="sequenceFlow_1qvnv" name="rejected" sourceRef="exclusiveGateway_1nvnv" targetRef="endEvent_1pvnv">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${rejected}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="sequenceFlow_1svnv" name="approved" sourceRef="exclusiveGateway_1nvnv" targetRef="endEvent_1rvnv" />
+    <bpmn:sequenceFlow id="sequenceFlow_1tvnv" name="no" sourceRef="exclusiveGateway_1jvnv" targetRef="userTask_1hvnv">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${no}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_ai">
+      <bpmndi:BPMNShape id="Lane_17vnu_di" bpmnElement="Lane_17vnu" isHorizontal="true">
+        <dc:Bounds x="30" y="60" width="1332" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_18vnv_di" bpmnElement="Lane_18vnv" isHorizontal="true">
+        <dc:Bounds x="30" y="240" width="1332" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_19vnv_di" bpmnElement="Lane_19vnv" isHorizontal="true">
+        <dc:Bounds x="30" y="420" width="1332" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1avnv_di" bpmnElement="Lane_1avnv" isHorizontal="true">
+        <dc:Bounds x="30" y="600" width="1332" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1bvnv_di" bpmnElement="Lane_1bvnv" isHorizontal="true">
+        <dc:Bounds x="30" y="780" width="1332" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="startEvent_1cvnv_di" bpmnElement="startEvent_1cvnv">
+        <dc:Bounds x="60" y="132" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="userTask_1dvnv_di" bpmnElement="userTask_1dvnv">
+        <dc:Bounds x="176" y="110" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="task_1fvnv_di" bpmnElement="task_1fvnv">
+        <dc:Bounds x="376" y="110" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="userTask_1hvnv_di" bpmnElement="userTask_1hvnv">
+        <dc:Bounds x="576" y="290" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="exclusiveGateway_1jvnv_di" bpmnElement="exclusiveGateway_1jvnv">
+        <dc:Bounds x="776" y="305" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="userTask_1lvnv_di" bpmnElement="userTask_1lvnv">
+        <dc:Bounds x="906" y="470" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="exclusiveGateway_1nvnv_di" bpmnElement="exclusiveGateway_1nvnv">
+        <dc:Bounds x="1106" y="485" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="endEvent_1pvnv_di" bpmnElement="endEvent_1pvnv">
+        <dc:Bounds x="1236" y="492" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="endEvent_1rvnv_di" bpmnElement="endEvent_1rvnv">
+        <dc:Bounds x="1236" y="672" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="sequenceFlow_1evnv_di" bpmnElement="sequenceFlow_1evnv">
+        <di:waypoint x="96" y="150" />
+        <di:waypoint x="176" y="150" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_1gvnv_di" bpmnElement="sequenceFlow_1gvnv">
+        <di:waypoint x="296" y="150" />
+        <di:waypoint x="376" y="150" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_1ivnv_di" bpmnElement="sequenceFlow_1ivnv">
+        <di:waypoint x="496" y="150" />
+        <di:waypoint x="570" y="150" />
+        <di:waypoint x="570" y="310" />
+        <di:waypoint x="576" y="310" />
+        <di:waypoint x="576" y="314" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_1kvnv_di" bpmnElement="sequenceFlow_1kvnv">
+        <di:waypoint x="696" y="330" />
+        <di:waypoint x="776" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_1mvnv_di" bpmnElement="sequenceFlow_1mvnv">
+        <di:waypoint x="791" y="355" />
+        <di:waypoint x="791" y="370" />
+        <di:waypoint x="790" y="370" />
+        <di:waypoint x="790" y="460" />
+        <di:waypoint x="966" y="460" />
+        <di:waypoint x="966" y="470" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_1ovnv_di" bpmnElement="sequenceFlow_1ovnv">
+        <di:waypoint x="1026" y="510" />
+        <di:waypoint x="1106" y="510" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_1qvnv_di" bpmnElement="sequenceFlow_1qvnv">
+        <di:waypoint x="1156" y="500" />
+        <di:waypoint x="1230" y="500" />
+        <di:waypoint x="1230" y="510" />
+        <di:waypoint x="1236" y="510" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_1svnv_di" bpmnElement="sequenceFlow_1svnv">
+        <di:waypoint x="1141" y="535" />
+        <di:waypoint x="1141" y="550" />
+        <di:waypoint x="1140" y="550" />
+        <di:waypoint x="1140" y="660" />
+        <di:waypoint x="1254" y="660" />
+        <di:waypoint x="1254" y="672" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_1tvnv_di" bpmnElement="sequenceFlow_1tvnv">
+        <di:waypoint x="811" y="355" />
+        <di:waypoint x="811" y="744" />
+        <di:waypoint x="660" y="744" />
+        <di:waypoint x="660" y="370" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
