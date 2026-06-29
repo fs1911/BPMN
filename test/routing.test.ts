@@ -12,6 +12,28 @@ function isOrthogonal(wps: { x: number; y: number }[]): boolean {
   return true;
 }
 
+type P = { x: number; y: number };
+/** Length of the longest collinear overlap between segments of two polylines. */
+function collinearOverlap(a: P[], b: P[]): number {
+  let max = 0;
+  const segs = (w: P[]) => w.slice(0, -1).map((p, i) => [p, w[i + 1]] as [P, P]);
+  for (const [a1, a2] of segs(a)) {
+    for (const [b1, b2] of segs(b)) {
+      // horizontal overlap on the same y
+      if (a1.y === a2.y && b1.y === b2.y && a1.y === b1.y) {
+        const ov = Math.min(Math.max(a1.x, a2.x), Math.max(b1.x, b2.x)) - Math.max(Math.min(a1.x, a2.x), Math.min(b1.x, b2.x));
+        max = Math.max(max, ov);
+      }
+      // vertical overlap on the same x
+      if (a1.x === a2.x && b1.x === b2.x && a1.x === b1.x) {
+        const ov = Math.min(Math.max(a1.y, a2.y), Math.max(b1.y, b2.y)) - Math.max(Math.min(a1.y, a2.y), Math.min(b1.y, b2.y));
+        max = Math.max(max, ov);
+      }
+    }
+  }
+  return max;
+}
+
 describe("orthogonal router", () => {
   it("produces orthogonal waypoints for every flow", () => {
     const m = buildSampleProcess();
@@ -62,6 +84,38 @@ describe("orthogonal router", () => {
     // the back edge must dip below the content to avoid the forward flow
     expect(lowestY).toBeGreaterThanOrEqual(contentBottom);
     expect(isOrthogonal(back.waypoints!)).toBe(true);
+  });
+
+  it("keeps parallel flows on separate tracks (edge-aware routing)", () => {
+    resetIdCounter();
+    const m = emptyModel({ processId: "P" });
+    createNode(m, "startEvent", { id: "s" });
+    createNode(m, "parallelGateway", { id: "split", name: "" });
+    createNode(m, "userTask", { id: "a", name: "Task A" });
+    createNode(m, "userTask", { id: "b", name: "Task B" });
+    createNode(m, "userTask", { id: "c", name: "Task C" });
+    createNode(m, "parallelGateway", { id: "join", name: "" });
+    createNode(m, "endEvent", { id: "e" });
+    createEdge(m, "sequenceFlow", "s", "split");
+    createEdge(m, "sequenceFlow", "split", "a");
+    createEdge(m, "sequenceFlow", "split", "b");
+    createEdge(m, "sequenceFlow", "split", "c");
+    createEdge(m, "sequenceFlow", "a", "join");
+    createEdge(m, "sequenceFlow", "b", "join");
+    createEdge(m, "sequenceFlow", "c", "join");
+    createEdge(m, "sequenceFlow", "join", "e");
+    autoLayout(m, "P");
+
+    // No two distinct edges may share a long collinear overlapping segment.
+    const edges = Object.values(m.edges).filter((e) => e.waypoints);
+    let worst = 0;
+    for (let i = 0; i < edges.length; i++) {
+      for (let j = i + 1; j < edges.length; j++) {
+        worst = Math.max(worst, collinearOverlap(edges[i].waypoints!, edges[j].waypoints!));
+      }
+    }
+    // allow a little shared stubbing near shared endpoints, but not a full track
+    expect(worst).toBeLessThan(60);
   });
 
   it("separates multiple back edges into different channels", () => {

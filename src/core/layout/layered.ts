@@ -353,25 +353,32 @@ function layoutWithLanes(
     }
   }
 
+  // Reserve a routing band at the bottom of the pool for back-edge (loop)
+  // channels so loops stay *inside* the pool instead of dangling beneath it.
+  // Visual only — node positions are unchanged, so the forward flow is stable.
+  const nBack = backEdges.size;
+  const loopReserve = nBack > 0 ? nBack * 34 + 28 : 0;
+
   // Size and position lane shapes. bpmn-js expects a 30px pool label gutter on
   // the left, with lanes starting at participant.x + 30.
   const POOL_GUTTER = 30;
   const laneX = opts.marginX - 30 + POOL_GUTTER;
   const laneW = totalWidth - (laneX - POOL_GUTTER) + 30 - POOL_GUTTER;
-  for (const lid of laneIds) {
+  laneIds.forEach((lid, i) => {
+    const extra = i === laneIds.length - 1 ? loopReserve : 0;
     model.lanes[lid].bounds = {
       x: laneX,
       y: laneTop[lid],
       width: laneW,
-      height: laneHeight[lid],
+      height: laneHeight[lid] + extra,
     };
-  }
+  });
 
   // If a participant (pool) references this scope, wrap the lanes.
   const participant = Object.values(model.participants).find((p) => p.processRef === scope);
   if (participant && laneIds.length) {
     const firstTop = laneTop[laneIds[0]];
-    const totalH = laneIds.reduce((acc, lid) => acc + laneHeight[lid], 0);
+    const totalH = laneIds.reduce((acc, lid) => acc + laneHeight[lid], 0) + loopReserve;
     participant.bounds = {
       x: laneX - POOL_GUTTER,
       y: firstTop,

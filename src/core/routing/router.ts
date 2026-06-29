@@ -11,11 +11,14 @@ import {
  *
  * Forward edges are routed with a direction-aware A* over a uniform grid with a
  * turn penalty, so paths stay orthogonal, dodge other shapes, and minimise
- * bends. Back edges (rework / loop returns) are deliberately NOT routed by A*:
- * each is folded into its own horizontal channel beneath the diagram content,
- * fanned vertically so they never stack on top of one another. That keeps the
- * forward reading direction intact and makes loops obvious — the single most
- * common failure of off-the-shelf BPMN routers.
+ * bends. Crucially the router is *edge-aware*: every routed connection is
+ * stamped into a shared occupancy field, so subsequent edges pay a penalty for
+ * sharing a track and therefore spread out instead of overlapping — the main
+ * thing naive per-edge routers (incl. bpmn-js' default) get wrong.
+ *
+ * Back edges (rework / loop returns) are folded into their own horizontal
+ * channels beneath the content (reserved inside the pool by the layout), fanned
+ * vertically so they never stack, keeping the forward reading direction intact.
  */
 
 export interface RouteOptions {
@@ -23,13 +26,19 @@ export interface RouteOptions {
   clearance: number;
   turnPenalty: number;
   channelGap: number;
+  /** soft cost added for routing over a cell already used by another edge. */
+  edgePenalty: number;
+  /** soft cost for cells adjacent to an existing edge (discourages hugging). */
+  edgeNeighborPenalty: number;
 }
 
 export const DEFAULT_ROUTING: RouteOptions = {
   gridStep: 10,
-  clearance: 14,
-  turnPenalty: 14,
-  channelGap: 36,
+  clearance: 16,
+  turnPenalty: 16,
+  channelGap: 34,
+  edgePenalty: 40,
+  edgeNeighborPenalty: 12,
 };
 
 const SIDE_DELTA: Record<Side, Point> = {
@@ -61,16 +70,55 @@ export function routeScope(
   const contentBottom = Math.max(...scopeNodes.map((n) => n.bounds.y + n.bounds.height), 0);
 
   const grid = buildGrid(scopeNodes, opts);
+  const occupancy = new Float32Array(grid.W * grid.H);
 
   const backEdges = edges.filter((e) => e.isBackEdge);
   const fwdEdges = edges.filter((e) => !e.isBackEdge);
 
+  // Route shorter / left-to-right edges first so the dominant flow claims the
+  // straightest tracks and later edges detour around them. Deterministic.
+  fwdEdges.sort((a, b) => {
+    const sa = model.nodes[a.source].bounds;
+    const sb = model.nodes[b.source].bounds;
+    return sa.x - sb.x || sa.y - sb.y || a.id.localeCompare(b.id);
+  });
+
   for (const e of fwdEdges) {
-    e.waypoints = routeForward(model, e, grid, opts, outIndex, inIndex);
+    e.waypoints = routeForward(model, e, grid, occupancy, opts, outIndex, inIndex);
+    stampPath(occupancy, grid, e.waypoints, opts);
   }
   backEdges.forEach((e, k) => {
     e.waypoints = routeBackEdge(model, e, contentBottom, opts, k, outIndex, inIndex);
+    stampPath(occupancy, grid, e.waypoints, opts);
   });
+}
+
+/** Mark the cells a routed path occupies (and their neighbours) as costly. */
+function stampPath(occ: Float32Array, g: Grid, wps: Waypoint[] | undefined, opts: RouteOptions): void {
+  if (!wps || wps.length < 2) return;
+  const { W, H, step } = g;
+  const mark = (cx: number, cy: number, v: number) => {
+    if (cx < 0 || cy < 0 || cx >= W || cy >= H) return;
+    occ[cy * W + cx] += v;
+  };
+  for (let i = 0; i < wps.length - 1; i++) {
+    const a = toCell(wps[i], g);
+    const b = toCell(wps[i + 1], g);
+    const dx = Math.sign(b[0] - a[0]);
+    const dy = Math.sign(b[1] - a[1]);
+    let [cx, cy] = a;
+    // walk the orthogonal segment cell by cell
+    for (;;) {
+      mark(cx, cy, opts.edgePenalty);
+      // discourage running parallel right next to this track
+      mark(cx + dy, cy + dx, opts.edgeNeighborPenalty);
+      mark(cx - dy, cy - dx, opts.edgeNeighborPenalty);
+      if (cx === b[0] && cy === b[1]) break;
+      cx += dx;
+      cy += dy;
+    }
+  }
+  void step;
 }
 
 /** Assign each edge a 0-based index among siblings sharing the same endpoint. */
@@ -181,6 +229,7 @@ const DIRS: Array<[number, number]> = [
 function astar(
   g: Grid,
   blocked: Uint8Array,
+  occupancy: Float32Array | null,
   start: [number, number],
   goal: [number, number],
   startDir: number,
@@ -250,7 +299,8 @@ function astar(
       if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
       if (blocked[ny * W + nx]) continue;
       const turn = d !== 4 && d !== nd ? turnPenalty : 0;
-      const ng = baseG + g.step + turn;
+      const occ = occupancy ? occupancy[ny * W + nx] : 0;
+      const ng = baseG + g.step + turn + occ;
       const ns = sIdx(nx, ny, nd);
       if (ng < gScore[ns]) {
         gScore[ns] = ng;
@@ -292,6 +342,7 @@ function routeForward(
   model: BpmnModel,
   e: Edge,
   g: Grid,
+  occupancy: Float32Array,
   opts: RouteOptions,
   outIdx: Record<string, number>,
   inIdx: Record<string, number>,
@@ -323,7 +374,7 @@ function routeForward(
   const blocked = g.blocked(s.id, t.id);
   const startCell = toCell(stubStart, g);
   const goalCell = toCell(stubEnd, g);
-  const path = astar(g, blocked, startCell, goalCell, dirIndexForSide(from), opts.turnPenalty);
+  const path = astar(g, blocked, occupancy, startCell, goalCell, dirIndexForSide(from), opts.turnPenalty);
 
   let pts: Point[];
   if (path) {
