@@ -3,39 +3,39 @@ import { useEditor } from "@state/store";
 
 const GROUPS: Array<{ title: string; items: Array<{ type: FlowElementType; label: string; ed?: string }> }> = [
   {
-    title: "Events",
+    title: "Ereignisse",
     items: [
       { type: "startEvent", label: "Start" },
-      { type: "intermediateCatchEvent", label: "Intermediate" },
-      { type: "boundaryEvent", label: "Boundary" },
-      { type: "endEvent", label: "End" },
+      { type: "intermediateCatchEvent", label: "Zwischen" },
+      { type: "boundaryEvent", label: "Rand" },
+      { type: "endEvent", label: "Ende" },
     ],
   },
   {
-    title: "Activities",
+    title: "Aktivitäten",
     items: [
-      { type: "task", label: "Task" },
-      { type: "userTask", label: "User task" },
-      { type: "serviceTask", label: "Service task" },
-      { type: "subProcess", label: "Sub-process" },
-      { type: "callActivity", label: "Call activity" },
+      { type: "task", label: "Aufgabe" },
+      { type: "userTask", label: "Benutzeraufgabe" },
+      { type: "serviceTask", label: "Serviceaufgabe" },
+      { type: "subProcess", label: "Teilprozess" },
+      { type: "callActivity", label: "Aufruf-Aktivität" },
     ],
   },
   {
     title: "Gateways",
     items: [
-      { type: "exclusiveGateway", label: "Exclusive (XOR)" },
-      { type: "parallelGateway", label: "Parallel (AND)" },
-      { type: "inclusiveGateway", label: "Inclusive (OR)" },
-      { type: "eventBasedGateway", label: "Event-based" },
+      { type: "exclusiveGateway", label: "Exklusiv (XOR)" },
+      { type: "parallelGateway", label: "Parallel (UND)" },
+      { type: "inclusiveGateway", label: "Inklusiv (ODER)" },
+      { type: "eventBasedGateway", label: "Ereignisbasiert" },
     ],
   },
   {
-    title: "Data",
+    title: "Daten",
     items: [
-      { type: "dataObjectReference", label: "Data object" },
-      { type: "dataStoreReference", label: "Data store" },
-      { type: "textAnnotation", label: "Annotation" },
+      { type: "dataObjectReference", label: "Datenobjekt" },
+      { type: "dataStoreReference", label: "Datenspeicher" },
+      { type: "textAnnotation", label: "Anmerkung" },
     ],
   },
 ];
@@ -59,7 +59,7 @@ export function Palette() {
           <div className="palette-title">{g.title}</div>
           <div className="palette-items">
             {g.items.map((it) => (
-              <button key={it.type} className="palette-item" title={`Add ${it.label}`} onClick={() => place(it.type)}>
+              <button key={it.type} className="palette-item" title={`${it.label} hinzufügen`} onClick={() => place(it.type)}>
                 <PaletteIcon type={it.type} />
                 <span>{it.label}</span>
               </button>

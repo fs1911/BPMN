@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useEditor } from "@state/store";
 
-const SAMPLE = `When a purchase request is received, the requester submits it in the system.
-The procurement officer checks the request for completeness.
-If the request is incomplete, send it back to the requester.
-The department head approves the request.
-The system creates a purchase order.
-The process ends when the order is sent to the supplier.`;
+const SAMPLE = `Wenn eine Bestellanforderung eingeht, erfasst der Sachbearbeiter sie im System.
+Der Einkäufer prüft die Anforderung auf Vollständigkeit.
+Wenn die Anforderung unvollständig ist, zurück an den Antragsteller senden.
+Der Abteilungsleiter gibt die Anforderung frei.
+Das System erstellt eine Bestellung.
+Der Prozess endet, wenn die Bestellung an den Lieferanten gesendet wurde.`;
 
 export function AiPanel() {
   const store = useEditor;
@@ -20,21 +20,21 @@ export function AiPanel() {
   return (
     <div className="panel ai">
       <div className="tabs">
-        <button className={tab === "generate" ? "on" : ""} onClick={() => setTab("generate")}>AI Modeling</button>
-        <button className={tab === "review" ? "on" : ""} onClick={() => setTab("review")}>Review</button>
+        <button className={tab === "generate" ? "on" : ""} onClick={() => setTab("generate")}>KI-Modellierung</button>
+        <button className={tab === "review" ? "on" : ""} onClick={() => setTab("review")}>Überprüfung</button>
       </div>
 
       {tab === "generate" && (
         <div className="ai-generate">
-          <h4>Describe a process</h4>
-          <textarea value={text} rows={8} onChange={(e) => setText(e.target.value)} placeholder="Paste an SOP, email, meeting notes or a step list…" />
-          <button disabled={busy} onClick={() => store.getState().generate(text)}>Generate BPMN draft</button>
+          <h4>Prozess beschreiben</h4>
+          <textarea value={text} rows={8} onChange={(e) => setText(e.target.value)} placeholder="Arbeitsanweisung, E-Mail, Besprechungsnotizen oder Schrittliste einfügen…" />
+          <button disabled={busy} onClick={() => store.getState().generate(text)}>BPMN-Entwurf generieren</button>
 
-          <h4>Update by instruction</h4>
+          <h4>Per Anweisung aktualisieren</h4>
           <div className="row">
             <input
               value={instruction}
-              placeholder='e.g. "Add an approval by the manager before shipment"'
+              placeholder='z. B. „Eine Freigabe durch den Manager vor dem Versand hinzufügen“'
               onChange={(e) => setInstruction(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && instruction.trim()) {
@@ -43,10 +43,10 @@ export function AiPanel() {
                 }
               }}
             />
-            <button onClick={() => { if (instruction.trim()) { store.getState().instruct(instruction.trim()); setInstruction(""); } }}>Apply</button>
+            <button onClick={() => { if (instruction.trim()) { store.getState().instruct(instruction.trim()); setInstruction(""); } }}>Anwenden</button>
           </div>
           <div className="quick-cmds">
-            {["Create a rework loop for incomplete documents", "Add an exception path if the permit is missing", "Split procurement and finance into separate lanes"].map((c) => (
+            {["Nachbearbeitungsschleife für unvollständige Dokumente erstellen", "Ausnahmepfad hinzufügen, wenn die Genehmigung fehlt", "Einkauf und Finanzen in separate Bahnen aufteilen"].map((c) => (
               <button key={c} className="chip" onClick={() => store.getState().instruct(c)}>{c}</button>
             ))}
           </div>
@@ -61,31 +61,31 @@ export function AiPanel() {
 
       {tab === "review" && (
         <div className="ai-review">
-          {!review && <p className="muted">Generate a diagram to see the extraction review: detected roles, decisions, loops, exceptions, assumptions and ambiguities.</p>}
+          {!review && <p className="muted">Generieren Sie ein Diagramm, um die Auswertung zu sehen: erkannte Rollen, Entscheidungen, Schleifen, Ausnahmen, Annahmen und Unklarheiten.</p>}
           {review && (
             <>
               <div className="confidence">
-                <span>Confidence</span>
+                <span>Konfidenz</span>
                 <div className="bar"><div style={{ width: `${review.confidence * 100}%` }} /></div>
                 <b>{(review.confidence * 100).toFixed(0)}%</b>
               </div>
-              <ReviewList title="Roles / lanes" items={review.roles} />
-              <ReviewList title="Systems" items={review.systems} />
-              <ReviewList title="Documents / data" items={review.dataObjects} />
-              <ReviewList title="Decisions" items={review.decisions} />
-              <ReviewList title="Approvals" items={review.approvals} />
-              <ReviewList title="Checks / controls" items={review.checks} />
-              <ReviewList title="Rework loops" items={review.loops} />
-              <ReviewList title="Exceptions" items={review.exceptions} />
+              <ReviewList title="Rollen / Bahnen" items={review.roles} />
+              <ReviewList title="Systeme" items={review.systems} />
+              <ReviewList title="Dokumente / Daten" items={review.dataObjects} />
+              <ReviewList title="Entscheidungen" items={review.decisions} />
+              <ReviewList title="Freigaben" items={review.approvals} />
+              <ReviewList title="Prüfungen / Kontrollen" items={review.checks} />
+              <ReviewList title="Nachbearbeitungsschleifen" items={review.loops} />
+              <ReviewList title="Ausnahmen" items={review.exceptions} />
               {review.assumptions.length > 0 && (
                 <div className="review-block assumptions">
-                  <h5>Assumptions made</h5>
+                  <h5>Getroffene Annahmen</h5>
                   <ul>{review.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul>
                 </div>
               )}
               {review.ambiguities.length > 0 && (
                 <div className="review-block ambiguities">
-                  <h5>Open questions / ambiguities</h5>
+                  <h5>Offene Fragen / Unklarheiten</h5>
                   <ul>{review.ambiguities.map((a, i) => <li key={i}><b>{a.about}:</b> {a.question}{a.options ? ` (${a.options.join(" / ")})` : ""}</li>)}</ul>
                 </div>
               )}

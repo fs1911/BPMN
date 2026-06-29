@@ -183,7 +183,7 @@ export function Canvas() {
             selected={selection.includes(n.id)}
             onPointerDown={onNodePointerDown(n.id)}
             onDoubleClick={() => {
-              const name = prompt("Label", n.name ?? "");
+              const name = prompt("Beschriftung", n.name ?? "");
               if (name !== null) store.getState().renameNode(n.id, name);
             }}
             onConnectStart={onConnectStart(n.id)}
@@ -194,7 +194,7 @@ export function Canvas() {
         {marquee && <rect className="marquee" x={marquee.x} y={marquee.y} width={marquee.w} height={marquee.h} />}
       </g>
 
-      {connectFrom && <text className="hint" x={12} y={24}>Connecting… click a target node</text>}
+      {connectFrom && <text className="hint" x={12} y={24}>Verbinden… Zielelement anklicken</text>}
     </svg>
   );
 }

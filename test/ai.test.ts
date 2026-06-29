@@ -109,3 +109,51 @@ describe("instruction → model update", () => {
     expect(res.description).toMatch(/could not interpret/i);
   });
 });
+
+const RECHNUNGS_PROZESS = `Wenn eine Rechnung eingeht, erfasst der Sachbearbeiter sie im System.
+Der Sachbearbeiter prüft die Rechnung gegen die Bestellung.
+Wenn die Unterlagen unvollständig sind, zurück an die Erfassung der Rechnung senden.
+Der Abteilungsleiter gibt die Rechnung frei.
+Das System plant die Zahlung.
+Der Prozess endet, wenn die Zahlung archiviert ist.`;
+
+describe("Deutsch: Text → BPMN", () => {
+  it("erkennt Rollen, Systeme, Dokumente, Entscheidungen und Schleifen", () => {
+    const ir = extractIR(RECHNUNGS_PROZESS);
+    expect(ir.lang).toBe("de");
+    expect(ir.roles.join(" ").toLowerCase()).toMatch(/sachbearbeiter|abteilungsleiter/);
+    expect(ir.systems.length).toBeGreaterThan(0);
+    expect(ir.dataObjects.map((d) => d.toLowerCase()).join(" ")).toMatch(/rechnung/);
+    expect(ir.steps.some((s) => s.kind === "approval")).toBe(true);
+    expect(ir.steps.some((s) => s.kind === "check")).toBe(true);
+    expect(ir.steps.some((s) => (s.branches ?? []).some((b) => b.loopTo))).toBe(true);
+  });
+
+  it("erzeugt ein gültiges, deutsch beschriftetes Diagramm", () => {
+    const { model, review } = generateFromTextSync(RECHNUNGS_PROZESS);
+    expect(validate(model).filter((i) => i.severity === "error")).toHaveLength(0);
+    expect(Object.values(model.nodes).some((n) => n.type === "exclusiveGateway")).toBe(true);
+    // German branch labels (freigegeben / abgelehnt) appear on edges
+    const labels = Object.values(model.edges).map((e) => e.name ?? "").join(" ").toLowerCase();
+    expect(labels).toMatch(/freigegeben|abgelehnt|unvollständig|ja|nein/);
+    expect(review.roles.length).toBeGreaterThan(0);
+  });
+
+  it("verarbeitet deutsche Anweisungen", () => {
+    const { model } = generateFromTextSync("Der Sachbearbeiter bereitet die Lieferung vor. Die Lieferung wird versendet.");
+    const before = Object.keys(model.nodes).length;
+    const res = updateByInstruction(model, "Eine Freigabe durch den Abteilungsleiter vor der Lieferung hinzufügen");
+    expect(res.applied).toBe(true);
+    expect(Object.keys(model.nodes).length).toBeGreaterThan(before);
+    expect(res.description).toMatch(/Freigabe/);
+  });
+
+  it("teilt Rollen in separate Bahnen auf (Deutsch)", () => {
+    const { model } = generateFromTextSync("Das Team erledigt den Einkauf. Das Team erledigt die Bauleitung.");
+    const res = updateByInstruction(model, "Einkauf und Bauleitung in separate Bahnen aufteilen");
+    expect(res.applied).toBe(true);
+    const laneNames = Object.values(model.lanes).map((l) => (l.name ?? "").toLowerCase()).join(" ");
+    expect(laneNames).toMatch(/einkauf/);
+    expect(laneNames).toMatch(/bauleitung/);
+  });
+});

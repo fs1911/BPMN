@@ -43,6 +43,13 @@ const ROLE_HINTS = [
   "department head",
   "team lead",
   "operator",
+  // German
+  "sachbearbeiter", "sachbearbeiterin", "einkäufer", "einkauf", "abteilungsleiter",
+  "leiter", "leiterin", "mitarbeiter", "mitarbeiterin", "kunde", "kundin",
+  "lieferant", "antragsteller", "antragstellerin", "prüfer", "prüferin", "freigeber",
+  "buchhalter", "buchhaltung", "vertrieb", "lager", "fachbereich", "geschäftsführer",
+  "teamleiter", "qualität", "recht", "finanzen", "kundendienst", "disponent",
+  "techniker", "berater",
 ];
 
 const SYSTEM_HINTS = [
@@ -57,6 +64,8 @@ const SYSTEM_HINTS = [
   "api",
   "server",
   "application system",
+  // German
+  "datenbank", "plattform", "anwendung",
 ];
 
 const DATA_HINTS = [
@@ -80,15 +89,20 @@ const DATA_HINTS = [
   "drawing",
   "plan",
   "purchase order",
+  // German
+  "dokument", "dokumente", "unterlagen", "rechnung", "formular", "bericht",
+  "genehmigung", "vertrag", "antrag", "anforderung", "bestellanforderung",
+  "bestellung", "auftrag", "datei", "datensatz", "zertifikat", "angebot",
+  "lieferschein", "nachweis", "beleg",
 ];
 
-const DECISION_RE = /\b(if|whether|decide|depending on|in case|check\w* (?:if|whether))\b/i;
-const APPROVAL_RE = /\b(approv\w*|sign[- ]?off|authoriz\w*|reject\w*)\b/i;
-const CHECK_RE = /\b(check\w*|verif\w*|review\w*|validat\w*|inspect\w*|control\w*|examin\w*|assess\w*)\b/i;
-const EXCEPTION_RE = /\b(missing|incomplete|invalid|error|fail\w*|escalat\w*|exception|reject\w*|not (?:complete|valid|approved))\b/i;
-const LOOP_RE = /\b(send back|sent back|return\w* to|resubmit|rework|request\w* again|back to|until|loop)\b/i;
-const START_RE = /\b(start|begin|upon|when .* (?:received|submitted|arrives)|triggered by|initiat\w*)\b/i;
-const END_RE = /\b(end|finish\w*|complete\w*|archiv\w*|closed?|done|terminat\w*)\b/i;
+const DECISION_RE = /\b(if|whether|decide|depending on|in case|check\w* (?:if|whether)|falls|ob|wenn|sofern|je nachdem|entscheid\w*|prüf\w* ob)\b/i;
+const APPROVAL_RE = /\b(approv\w*|sign[- ]?off|authoriz\w*|reject\w*|freigab\w*|freigeb\w*|freigegeben|freigib\w*|frei|genehmig\w*|bewillig\w*|ablehn\w*|abgelehnt|unterschreib\w*|unterzeichn\w*)\b/i;
+const CHECK_RE = /\b(check\w*|verif\w*|review\w*|validat\w*|inspect\w*|control\w*|examin\w*|assess\w*|prüf\w*|überprüf\w*|kontrollier\w*|verifizier\w*|validier\w*|begutacht\w*|bewert\w*|sicht\w*)\b/i;
+const EXCEPTION_RE = /\b(missing|incomplete|invalid|error|fail\w*|escalat\w*|exception|reject\w*|not (?:complete|valid|approved)|fehlt|fehlend\w*|unvollständig\w*|ungültig\w*|fehler\w*|scheiter\w*|eskalier\w*|ausnahme|abgelehnt)\b/i;
+const LOOP_RE = /\b(send back|sent back|return\w* to|resubmit|rework|request\w* again|back to|until|loop|zurück\w*|erneut|nacharbeit\w*|wiederhol\w*|bis|schleife)\b/i;
+const START_RE = /\b(start\w*|begin\w*|upon|when .* (?:received|submitted|arrives)|triggered by|initiat\w*|beginnt|startet|sobald|wenn .* (?:eingeht|eingegangen|eintrifft|empfangen|gestartet|gestellt)|bei eingang|ausgelöst)\b/i;
+const END_RE = /\b(end\b|ends\b|finish\w*|complete\w*|archiv\w*|closed?|done|terminat\w*|endet|abgeschlossen|fertig|beendet|geschlossen)\b/i;
 
 let stepCounter = 0;
 function nextId(): string {
@@ -113,7 +127,7 @@ export function segment(input: string): Array<{ text: string; role?: string }> {
     t = t.replace(/^\s*step\s*\d+\s*[:.-]\s*/i, "");
     // split prose into clauses on sentence enders and strong connectors
     const clauses = t
-      .split(/(?<=[.;])\s+|\.\s+|,?\s+then\s+|,?\s+and then\s+/i)
+      .split(/(?<=[.;])\s+|\.\s+|,?\s+then\s+|,?\s+and then\s+|,?\s+dann\s+|,?\s+und dann\s+|,?\s+danach\s+/i)
       .map((c) => c.trim().replace(/[.;]+$/, ""))
       .filter((c) => c.length > 2);
     for (const c of clauses) units.push({ text: c, role });
@@ -143,17 +157,29 @@ function normalizeRole(s: string): string {
 
 function detectRole(text: string, fallback?: string): string | undefined {
   const lower = text.toLowerCase();
-  // "by the X" / "the X approves/reviews/..."
-  const by = lower.match(/by (?:the |a )?([\w ]+?)(?:\.|,|;|$| if | when | and )/);
+  // "by the X" / "durch den X" / "vom X" / "von der X"
+  const by = lower.match(/(?:by|durch|vom|von) (?:the |a |dem |der |den |das )?([\wäöüß ]+?)(?:\.|,|;|$| if | when | and | wenn | und )/);
   if (by) {
     const cand = by[1].trim();
     const hit = ROLE_HINTS.find((r) => cand.includes(r));
     if (hit) return capitalize(extractRolePhrase(cand, hit));
   }
+  // "the X verb" / "der X verb" with EN+DE verb stems
   for (const r of ROLE_HINTS) {
-    const re = new RegExp(`(?:the |a )?([\\w ]*${r}[\\w ]*?) (?:approv|review|check|verif|process|prepar|sign|handl|creat|send|receiv|complet)`, "i");
+    const re = new RegExp(
+      `(?:the |a |der |die |das |dem |den )?([\\wäöüß]*${r}[\\wäöüß]*) (?:approv|review|check|verif|process|prepar|sign|handl|creat|send|receiv|complet|prüf|gibt|genehmig|kontrollier|erfass|erstell|sende|bearbeit|leg|nimm|überprüf|freigeb|freigib)`,
+      "i",
+    );
     const m = lower.match(re);
-    if (m) return capitalize(extractRolePhrase(m[1].trim(), r));
+    if (m) return capitalize(m[1].trim());
+  }
+  // Language-agnostic fallback: any role hint present in the clause.
+  for (const r of ROLE_HINTS) {
+    const idx = lower.indexOf(r);
+    if (idx >= 0) {
+      const phrase = lower.slice(Math.max(0, idx - 14), idx + r.length);
+      return capitalize(extractRolePhrase(phrase.trim(), r));
+    }
   }
   return fallback;
 }
@@ -199,10 +225,13 @@ function capitalize(s: string): string {
 }
 
 function classify(text: string, isFirst: boolean, isLast: boolean): StepKind {
+  // Boundary sentences win first so a German "Wenn … eingeht" opener is a start
+  // event rather than a decision.
+  if (isFirst && START_RE.test(text)) return "start";
+  if (isLast && END_RE.test(text) && !APPROVAL_RE.test(text) && !DECISION_RE.test(text)) return "end";
   if (DECISION_RE.test(text) && !APPROVAL_RE.test(text)) return "decision";
   if (APPROVAL_RE.test(text)) return "approval";
   if (CHECK_RE.test(text)) return "check";
-  if (isFirst && START_RE.test(text)) return "start";
   if (isLast && END_RE.test(text)) return "end";
   if (EXCEPTION_RE.test(text)) return "exception";
   return "task";
@@ -210,10 +239,10 @@ function classify(text: string, isFirst: boolean, isLast: boolean): StepKind {
 
 /** Produce a readable object+verb name from a clause. */
 export function normalizeName(text: string, kind: StepKind): string {
-  let t = text.replace(/^(?:the |a |an )/i, "").trim();
-  // drop trailing role attribution
-  t = t.replace(/\bby (?:the |a )?[\w ]+$/i, "").trim();
-  t = t.replace(/^(?:then|next|after that|afterwards)\s+/i, "");
+  let t = text.replace(/^(?:the |a |an |der |die |das |dem |den |ein |eine |einen )/i, "").trim();
+  // drop trailing role attribution (EN + DE)
+  t = t.replace(/\b(?:by|durch|vom|von) (?:the |a |dem |der |den )?[\wäöüß ]+$/i, "").trim();
+  t = t.replace(/^(?:then|next|after that|afterwards|dann|danach|anschließend|zuerst)\s+/i, "");
   if (kind === "decision" || kind === "approval") {
     // phrase as a question
     const cond = extractCondition(t);
@@ -229,9 +258,9 @@ function capitalizeFirst(s: string): string {
 }
 
 function extractCondition(text: string): string | undefined {
-  const m = text.match(/\b(?:if|whether|check if|check whether|in case)\b\s+(.+)/i);
+  const m = text.match(/\b(?:if|whether|check if|check whether|in case|wenn|falls|ob|sofern)\b\s+(.+)/i);
   if (m) {
-    return m[1].split(/,| then | otherwise | else /i)[0].trim();
+    return m[1].split(/,| then | otherwise | else | dann | sonst | andernfalls /i)[0].trim();
   }
   if (APPROVAL_RE.test(text)) return "approved";
   return undefined;
@@ -256,8 +285,16 @@ function buildBranches(_text: string, kind: StepKind, hasException: boolean): Br
   ];
 }
 
+/** Lightweight language detector for localizing synthesized labels. */
+function detectLang(input: string): "de" | "en" {
+  const t = input.toLowerCase();
+  const deMarkers = /\b(der|die|das|und|wenn|wird|den|eine|einen|prüf|sendet|erstellt|nicht|durch|vom|von|abteilungsleiter|sachbearbeiter|antrag|rechnung|bestellung|genehmig|freigab|freigeb|unvollständig|zurück)\b|[äöüß]/;
+  return deMarkers.test(t) ? "de" : "en";
+}
+
 export function extractIR(input: string): ProcessIR {
   resetStepCounter();
+  const lang = detectLang(input);
   const units = segment(input);
   const roles = new Set<string>();
   const systems = new Set<string>();
@@ -291,52 +328,55 @@ export function extractIR(input: string): ProcessIR {
     steps.push(step);
   });
 
+  const de = lang === "de";
   // Ensure explicit start/end.
   if (!steps.some((s) => s.kind === "start")) {
     steps.unshift({
       id: nextId(),
       kind: "start",
       text: "Process start",
-      name: deriveStartName(input),
-      provenance: "(implicit start)",
+      name: deriveStartName(input, lang),
+      provenance: de ? "(impliziter Start)" : "(implicit start)",
     });
-    assumptions.push("No explicit trigger was stated; added a generic start event.");
+    assumptions.push(de ? "Kein expliziter Auslöser genannt; generisches Startereignis ergänzt." : "No explicit trigger was stated; added a generic start event.");
   }
   if (!steps.some((s) => s.kind === "end")) {
     steps.push({
       id: nextId(),
       kind: "end",
       text: "Process end",
-      name: "Process completed",
-      provenance: "(implicit end)",
+      name: de ? "Prozess abgeschlossen" : "Process completed",
+      provenance: de ? "(implizites Ende)" : "(implicit end)",
     });
-    assumptions.push("No explicit end was stated; added a generic end event.");
+    assumptions.push(de ? "Kein explizites Ende genannt; generisches Endereignis ergänzt." : "No explicit end was stated; added a generic end event.");
   }
 
   // Loop / rework detection: an exception or rejected branch returns to an
   // earlier task. Wire loopTo to the most recent check/task before it.
-  wireLoops(steps, assumptions);
+  wireLoops(steps, assumptions, lang);
 
   // Ambiguities
   if (roles.size === 0) {
-    ambiguities.push({
-      about: "responsibility",
-      question: "No clear roles were detected. Who performs these steps?",
-      options: ["Add a single lane for the whole team", "Leave roles unassigned"],
-    });
+    ambiguities.push(
+      de
+        ? { about: "Verantwortlichkeit", question: "Keine eindeutigen Rollen erkannt. Wer führt diese Schritte aus?", options: ["Eine gemeinsame Bahn für das Team", "Rollen offen lassen"] }
+        : { about: "responsibility", question: "No clear roles were detected. Who performs these steps?", options: ["Add a single lane for the whole team", "Leave roles unassigned"] },
+    );
   }
   const decisionsWithoutConditions = steps.filter(
     (s) => s.kind === "decision" && (!s.branches || s.branches.every((b) => /^(yes|no)$/.test(b.condition))),
   );
   for (const d of decisionsWithoutConditions) {
-    ambiguities.push({
-      about: `decision "${d.name}"`,
-      question: `What are the exact outcomes of "${d.name}"? Defaulted to yes/no.`,
-    });
+    ambiguities.push(
+      de
+        ? { about: `Entscheidung „${d.name}“`, question: `Wie lauten die genauen Ergebnisse von „${d.name}“? Standardmäßig ja/nein.` }
+        : { about: `decision "${d.name}"`, question: `What are the exact outcomes of "${d.name}"? Defaulted to yes/no.` },
+    );
   }
 
   return {
     title: deriveTitle(input),
+    lang,
     roles: [...roles],
     systems: [...systems],
     dataObjects: [...dataObjects],
@@ -351,7 +391,13 @@ function deriveTitle(input: string): string {
   return capitalize(first.split(/\s+/).slice(0, 6).join(" ")) || "Generated Process";
 }
 
-function deriveStartName(input: string): string {
+function deriveStartName(input: string, lang: "de" | "en"): string {
+  if (lang === "de") {
+    if (/rechnung/i.test(input)) return "Rechnung eingegangen";
+    if (/anforderung|antrag/i.test(input)) return "Anforderung eingegangen";
+    if (/bestellung|auftrag/i.test(input)) return "Bestellung eingegangen";
+    return "Prozess gestartet";
+  }
   if (/invoice/i.test(input)) return "Invoice received";
   if (/request/i.test(input)) return "Request received";
   if (/application/i.test(input)) return "Application received";
@@ -359,7 +405,7 @@ function deriveStartName(input: string): string {
   return "Process started";
 }
 
-function wireLoops(steps: StepIR[], assumptions: string[]): void {
+function wireLoops(steps: StepIR[], assumptions: string[], lang: "de" | "en"): void {
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     const loopText = LOOP_RE.test(s.text) || EXCEPTION_RE.test(s.text);
@@ -377,7 +423,12 @@ function wireLoops(steps: StepIR[], assumptions: string[]): void {
       const rejected = s.branches?.find((b) => /reject|no/.test(b.condition));
       if (rejected) {
         rejected.loopTo = target;
-        assumptions.push(`Modeled a rework loop: "${s.name}" returns to "${steps.find((x) => x.id === target)?.name}" when not successful.`);
+        const targetName = steps.find((x) => x.id === target)?.name;
+        assumptions.push(
+          lang === "de"
+            ? `Nachbearbeitungsschleife modelliert: „${s.name}“ kehrt bei Misserfolg zu „${targetName}“ zurück.`
+            : `Modeled a rework loop: "${s.name}" returns to "${targetName}" when not successful.`,
+        );
       }
     }
   }

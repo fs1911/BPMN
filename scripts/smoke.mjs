@@ -13,16 +13,16 @@ const seedNodes = await page.locator(".canvas .node").count();
 console.log("seed nodes:", seedNodes);
 await page.screenshot({ path: "scripts/01-initial.png" });
 
-// Generate from text via the AI panel
+// Generate from text via the AI panel (German)
 await page.locator(".ai-generate textarea").first().fill(
-  `When an invoice is received, the accountant records it in the system.
-The accountant checks the invoice against the purchase order.
-If the documents are incomplete, send back to record the invoice.
-The department head approves the invoice.
-The system schedules the payment.
-The process ends when the payment is archived.`,
+  `Wenn eine Rechnung eingeht, erfasst der Sachbearbeiter sie im System.
+Der Sachbearbeiter prüft die Rechnung gegen die Bestellung.
+Wenn die Unterlagen unvollständig sind, zurück an die Erfassung der Rechnung senden.
+Der Abteilungsleiter gibt die Rechnung frei.
+Das System plant die Zahlung.
+Der Prozess endet, wenn die Zahlung archiviert ist.`,
 );
-await page.getByText("Generate BPMN draft").click();
+await page.getByText("BPMN-Entwurf generieren").click();
 await page.waitForTimeout(600);
 const genNodes = await page.locator(".canvas .node").count();
 const genEdges = await page.locator(".canvas .edge").count();
@@ -30,21 +30,21 @@ const lanes = await page.locator(".canvas .lane").count();
 console.log("generated nodes:", genNodes, "edges:", genEdges, "lanes:", lanes);
 await page.screenshot({ path: "scripts/02-generated.png" });
 
-// Apply an instruction
-await page.locator(".ai-generate .row input").fill("Add an approval by the manager before the payment is scheduled");
-await page.getByText("Apply", { exact: true }).click();
+// Apply an instruction (German)
+await page.locator(".ai-generate .row input").fill("Eine Freigabe durch den Manager vor der Zahlung hinzufügen");
+await page.getByText("Anwenden", { exact: true }).click();
 await page.waitForTimeout(500);
 const afterNodes = await page.locator(".canvas .node").count();
 console.log("after instruction nodes:", afterNodes);
 await page.screenshot({ path: "scripts/03-after-instruction.png" });
 
 // Review tab
-await page.getByText("Review", { exact: true }).click();
+await page.getByText("Überprüfung", { exact: true }).click();
 await page.waitForTimeout(200);
 await page.screenshot({ path: "scripts/04-review.png" });
 
 // Dark mode
-await page.locator(".toolbar button[title='Toggle theme']").click();
+await page.locator(".toolbar button[title='Design wechseln']").click();
 await page.waitForTimeout(200);
 await page.screenshot({ path: "scripts/05-dark.png" });
 

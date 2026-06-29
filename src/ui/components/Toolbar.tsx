@@ -28,7 +28,7 @@ export function Toolbar() {
       try {
         store.getState().importXml(String(reader.result));
       } catch (err) {
-        alert("Import failed: " + (err as Error).message);
+        alert("Import fehlgeschlagen: " + (err as Error).message);
       }
     };
     reader.readAsText(file);
@@ -38,33 +38,33 @@ export function Toolbar() {
     <div className="toolbar">
       <span className="brand">FlowCraft<small> BPMN</small></span>
       <div className="tb-group">
-        <button onClick={() => store.getState().undo()} title="Undo (Ctrl+Z)">↶ Undo</button>
-        <button onClick={() => store.getState().redo()} title="Redo (Ctrl+Y)">↷ Redo</button>
+        <button onClick={() => store.getState().undo()} title="Rückgängig (Strg+Z)">↶ Rückgängig</button>
+        <button onClick={() => store.getState().redo()} title="Wiederholen (Strg+Y)">↷ Wiederholen</button>
       </div>
       <div className="tb-group">
-        <button onClick={() => store.getState().cleanupAll()} title="Auto layout + reroute">Clean up diagram</button>
-        <button onClick={() => store.getState().cleanupFlows()} title="Reroute flows only">Clean up flows</button>
+        <button onClick={() => store.getState().cleanupAll()} title="Auto-Layout + Kanten neu verlegen">Diagramm aufräumen</button>
+        <button onClick={() => store.getState().cleanupFlows()} title="Nur Kanten neu verlegen">Kanten aufräumen</button>
       </div>
       <div className="tb-group">
-        <button onClick={() => store.getState().zoomBy(1.2)}>＋</button>
-        <button onClick={() => store.getState().zoomBy(1 / 1.2)}>－</button>
-        <button onClick={() => { store.getState().setZoom(1); store.getState().setPan({ x: 60, y: 60 }); }}>Reset view</button>
+        <button onClick={() => store.getState().zoomBy(1.2)} title="Vergrößern">＋</button>
+        <button onClick={() => store.getState().zoomBy(1 / 1.2)} title="Verkleinern">－</button>
+        <button onClick={() => { store.getState().setZoom(1); store.getState().setPan({ x: 60, y: 60 }); }}>Ansicht zurücksetzen</button>
       </div>
       <div className="tb-group">
-        <button className={grid ? "on" : ""} onClick={() => store.getState().toggleGrid()}>Grid</button>
-        <button className={snap ? "on" : ""} onClick={() => store.getState().toggleSnap()}>Snap</button>
+        <button className={grid ? "on" : ""} onClick={() => store.getState().toggleGrid()}>Raster</button>
+        <button className={snap ? "on" : ""} onClick={() => store.getState().toggleSnap()}>Einrasten</button>
       </div>
       <div className="tb-group">
-        <button onClick={() => fileRef.current?.click()}>Import</button>
-        <button onClick={doExport}>Export BPMN</button>
+        <button onClick={() => fileRef.current?.click()}>Importieren</button>
+        <button onClick={doExport}>BPMN exportieren</button>
         <input ref={fileRef} type="file" accept=".bpmn,.xml" hidden onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
       </div>
       <div className="tb-spacer" />
-      <div className="tb-group validation-badge" title="Validation results">
-        <span className="err">{counts.errors} errors</span>
-        <span className="warn">{counts.warnings} warnings</span>
+      <div className="tb-group validation-badge" title="Validierungsergebnisse">
+        <span className="err">{counts.errors} Fehler</span>
+        <span className="warn">{counts.warnings} Warnungen</span>
       </div>
-      <button onClick={() => store.getState().toggleTheme()} title="Toggle theme">{theme === "light" ? "🌙" : "☀️"}</button>
+      <button onClick={() => store.getState().toggleTheme()} title="Design wechseln">{theme === "light" ? "🌙" : "☀️"}</button>
     </div>
   );
 }

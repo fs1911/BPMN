@@ -55,6 +55,8 @@ export interface Ambiguity {
 
 export interface ProcessIR {
   title?: string;
+  /** detected input language; drives localization of synthesized labels. */
+  lang?: "de" | "en";
   roles: string[];
   systems: string[];
   dataObjects: string[];

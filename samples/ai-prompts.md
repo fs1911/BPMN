@@ -1,55 +1,56 @@
-# Sample AI prompts
+# Beispiel-Prompts für die KI-Modellierung
 
-Paste any of these into the **AI Modeling → Describe a process** box and click
-**Generate BPMN draft**. They exercise roles, systems, decisions, approvals,
-checks, exceptions and rework loops.
+Fügen Sie einen der folgenden Texte unter **KI-Modellierung → Prozess
+beschreiben** ein und klicken Sie auf **BPMN-Entwurf generieren**. Die Beispiele
+nutzen Rollen, Systeme, Entscheidungen, Freigaben, Prüfungen, Ausnahmen und
+Nachbearbeitungsschleifen. (Englische Beschreibungen werden ebenfalls erkannt.)
 
-## 1. Invoice approval (free text + rework loop)
+## 1. Rechnungsfreigabe (Fließtext + Nachbearbeitungsschleife)
 ```
-When an invoice is received, the accountant records it in the system.
-The accountant checks the invoice against the purchase order.
-If the documents are incomplete, send back to record the invoice.
-The department head approves the invoice.
-The system schedules the payment.
-The process ends when the payment is archived.
-```
-
-## 2. Permit application (clarification loop + compliance review)
-```
-The applicant submits a building permit application via the portal.
-The clerk verifies the application for completeness.
-If information is missing, return to the applicant for clarification.
-The reviewer assesses the application against regulations.
-The department head approves the permit.
-The system issues the permit and the process ends.
+Wenn eine Rechnung eingeht, erfasst der Sachbearbeiter sie im System.
+Der Sachbearbeiter prüft die Rechnung gegen die Bestellung.
+Wenn die Unterlagen unvollständig sind, zurück an die Erfassung der Rechnung senden.
+Der Abteilungsleiter gibt die Rechnung frei.
+Das System plant die Zahlung.
+Der Prozess endet, wenn die Zahlung archiviert ist.
 ```
 
-## 3. Role-prefixed SOP style
+## 2. Bauantrag (Klärungsschleife + Compliance-Prüfung)
 ```
-Sales: receive the customer order.
-Warehouse: check stock availability.
-Warehouse: if stock is missing, send back to receive the order.
-Finance: verify the customer credit.
-Manager: approve the shipment.
-System: generate the shipping label.
-```
-
-## 4. Meeting-notes / conversational style
-```
-So basically the support agent picks up the ticket, then they triage it.
-If it's urgent we escalate to the on-call engineer, otherwise it goes to the
-normal queue. The engineer resolves it and we close the ticket.
+Der Antragsteller reicht einen Bauantrag über das Portal ein.
+Der Sachbearbeiter prüft den Antrag auf Vollständigkeit.
+Wenn Angaben fehlen, zurück an den Antragsteller zur Klärung.
+Der Prüfer bewertet den Antrag anhand der Vorschriften.
+Der Abteilungsleiter gibt die Genehmigung frei.
+Das System stellt die Genehmigung aus und der Prozess endet.
 ```
 
-# Sample follow-up instructions
+## 3. Rollen-Präfix / SOP-Stil
+```
+Vertrieb: Kundenauftrag entgegennehmen.
+Lager: Verfügbarkeit prüfen.
+Lager: Wenn der Bestand fehlt, zurück an die Auftragsannahme.
+Finanzen: Kundenbonität prüfen.
+Abteilungsleiter: Versand freigeben.
+System: Versandetikett erzeugen.
+```
 
-Type these into **Update by instruction** (or use the quick-command chips):
+## 4. Besprechungsnotizen / Umgangssprache
+```
+Also im Grunde nimmt der Sachbearbeiter das Ticket auf und triagiert es dann.
+Wenn es dringend ist, eskalieren wir an den Bereitschaftstechniker, sonst geht
+es in die normale Warteschlange. Der Techniker löst es und wir schließen das Ticket.
+```
 
-- `Add an approval by the department head before shipment`
-- `Create a rework loop for incomplete documents`
-- `Add an exception path if the permit is missing`
-- `Split procurement and site management into separate lanes`
-- `Replace the triage with an XOR gateway`
-- `Move the quality check before shipment`
-- `Rename the check step to "Validate purchase order"`
-- `Add a service task to notify the customer before the order is closed`
+# Beispiel-Folgeanweisungen
+
+In **Per Anweisung aktualisieren** eingeben (oder die Schnellbefehl-Chips nutzen):
+
+- `Eine Freigabe durch den Abteilungsleiter vor dem Versand hinzufügen`
+- `Nachbearbeitungsschleife für unvollständige Dokumente erstellen`
+- `Ausnahmepfad hinzufügen, wenn die Genehmigung fehlt`
+- `Einkauf und Bauleitung in separate Bahnen aufteilen`
+- `Triage durch ein XOR-Gateway ersetzen`
+- `Qualitätsprüfung vor den Versand verschieben`
+- `Prüfschritt in „Bestellung validieren“ umbenennen`
+- `Serviceaufgabe zum Benachrichtigen des Kunden vor dem Abschluss hinzufügen`

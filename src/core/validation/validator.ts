@@ -59,14 +59,14 @@ function validateFlowScopes(
     const s = model.nodes[e.source];
     const t = model.nodes[e.target];
     if (!s || !t) {
-      add({ rule: "flow.endpoints", severity: "error", message: `Sequence flow ${e.id} has a missing endpoint.`, elementId: e.id });
+      add({ rule: "flow.endpoints", severity: "error", message: `Sequenzfluss ${e.id} hat einen fehlenden Endpunkt.`, elementId: e.id });
       continue;
     }
     if (processOf[s.id] !== processOf[t.id]) {
       add({
         rule: "flow.same-pool",
         severity: "error",
-        message: `Sequence flow "${e.name ?? e.id}" connects elements in different pools. Use a message flow between pools.`,
+        message: `Sequenzfluss „${e.name ?? e.id}“ verbindet Elemente in verschiedenen Pools. Verwenden Sie zwischen Pools einen Nachrichtenfluss.`,
         elementId: e.id,
       });
     }
@@ -86,7 +86,7 @@ function validateMessageFlows(
       add({
         rule: "messageflow.cross-pool",
         severity: "error",
-        message: `Message flow "${e.name ?? e.id}" must connect two different pools.`,
+        message: `Nachrichtenfluss „${e.name ?? e.id}“ muss zwei verschiedene Pools verbinden.`,
         elementId: e.id,
       });
     }
@@ -97,7 +97,7 @@ function validateLanes(model: BpmnModel, add: (i: ValidationIssue) => void): voi
   for (const lane of Object.values(model.lanes)) {
     const proc = model.processes[lane.parent];
     if (!proc) {
-      add({ rule: "lane.in-pool", severity: "error", message: `Lane "${lane.name ?? lane.id}" is not contained in a process/pool.`, elementId: lane.id });
+      add({ rule: "lane.in-pool", severity: "error", message: `Bahn „${lane.name ?? lane.id}“ ist in keinem Prozess/Pool enthalten.`, elementId: lane.id });
     }
   }
 }
@@ -108,18 +108,18 @@ function validateEvents(model: BpmnModel, add: (i: ValidationIssue) => void): vo
     const out = adj.outgoing[n.id] ?? [];
     const inc = adj.incoming[n.id] ?? [];
     if (n.type === "startEvent") {
-      if (inc.length) add({ rule: "event.start-no-incoming", severity: "error", message: `Start event "${label(n)}" must not have incoming sequence flows.`, elementId: n.id });
-      if (!out.length) add({ rule: "event.start-outgoing", severity: "warning", message: `Start event "${label(n)}" has no outgoing flow.`, elementId: n.id });
+      if (inc.length) add({ rule: "event.start-no-incoming", severity: "error", message: `Startereignis „${label(n)}“ darf keine eingehenden Sequenzflüsse haben.`, elementId: n.id });
+      if (!out.length) add({ rule: "event.start-outgoing", severity: "warning", message: `Startereignis „${label(n)}“ hat keinen ausgehenden Fluss.`, elementId: n.id });
     }
     if (n.type === "endEvent") {
-      if (out.length) add({ rule: "event.end-no-outgoing", severity: "error", message: `End event "${label(n)}" must not have outgoing sequence flows.`, elementId: n.id });
-      if (!inc.length) add({ rule: "event.end-incoming", severity: "warning", message: `End event "${label(n)}" has no incoming flow.`, elementId: n.id });
+      if (out.length) add({ rule: "event.end-no-outgoing", severity: "error", message: `Endereignis „${label(n)}“ darf keine ausgehenden Sequenzflüsse haben.`, elementId: n.id });
+      if (!inc.length) add({ rule: "event.end-incoming", severity: "warning", message: `Endereignis „${label(n)}“ hat keinen eingehenden Fluss.`, elementId: n.id });
     }
     if (n.type === "boundaryEvent") {
       if (!n.attachedToRef || !model.nodes[n.attachedToRef]) {
-        add({ rule: "event.boundary-host", severity: "error", message: `Boundary event "${label(n)}" must be attached to an activity.`, elementId: n.id });
+        add({ rule: "event.boundary-host", severity: "error", message: `Rand-Ereignis „${label(n)}“ muss an eine Aktivität angeheftet sein.`, elementId: n.id });
       } else if (!isActivity(model.nodes[n.attachedToRef].type)) {
-        add({ rule: "event.boundary-host", severity: "error", message: `Boundary event "${label(n)}" must attach to an activity, not ${model.nodes[n.attachedToRef].type}.`, elementId: n.id });
+        add({ rule: "event.boundary-host", severity: "error", message: `Rand-Ereignis „${label(n)}“ muss an eine Aktivität angeheftet sein, nicht an ${model.nodes[n.attachedToRef].type}.`, elementId: n.id });
       }
     }
   }
@@ -132,28 +132,28 @@ function validateGateways(model: BpmnModel, add: (i: ValidationIssue) => void): 
     const out = adj.outgoing[n.id] ?? [];
     const inc = adj.incoming[n.id] ?? [];
     if (out.length <= 1 && inc.length <= 1) {
-      add({ rule: "gateway.degenerate", severity: "warning", message: `Gateway "${label(n)}" neither splits nor joins (1-in/1-out). Consider removing it.`, elementId: n.id });
+      add({ rule: "gateway.degenerate", severity: "warning", message: `Gateway „${label(n)}“ verzweigt und führt nichts zusammen (1 ein/1 aus). Entfernen erwägen.`, elementId: n.id });
     }
     if ((n.type === "exclusiveGateway" || n.type === "inclusiveGateway") && out.length > 1) {
       const withoutCondition = out.filter((e) => !e.condition && !e.isDefault);
       const defaults = out.filter((e) => e.isDefault);
       if (withoutCondition.length) {
-        add({ rule: "gateway.conditions", severity: "warning", message: `Outgoing flows of ${n.type} "${label(n)}" should carry conditions (answers). ${withoutCondition.length} flow(s) are unconditioned.`, elementId: n.id });
+        add({ rule: "gateway.conditions", severity: "warning", message: `Ausgehende Flüsse des ${n.type} „${label(n)}“ sollten Bedingungen (Antworten) tragen. ${withoutCondition.length} Fluss/Flüsse ohne Bedingung.`, elementId: n.id });
       }
       if (defaults.length > 1) {
-        add({ rule: "gateway.default", severity: "error", message: `Gateway "${label(n)}" has more than one default flow.`, elementId: n.id });
+        add({ rule: "gateway.default", severity: "error", message: `Gateway „${label(n)}“ hat mehr als einen Standardfluss.`, elementId: n.id });
       }
     }
     if (n.type === "parallelGateway") {
       for (const e of out) {
-        if (e.condition) add({ rule: "gateway.parallel-condition", severity: "error", message: `Parallel gateway "${label(n)}" must not have conditional outgoing flows.`, elementId: e.id });
+        if (e.condition) add({ rule: "gateway.parallel-condition", severity: "error", message: `Paralleles Gateway „${label(n)}“ darf keine bedingten ausgehenden Flüsse haben.`, elementId: e.id });
       }
     }
     if (n.type === "eventBasedGateway") {
       for (const e of out) {
         const tgt = model.nodes[e.target];
         if (tgt && tgt.type !== "intermediateCatchEvent" && !tgt.type.endsWith("Task")) {
-          add({ rule: "gateway.event-based-targets", severity: "warning", message: `Event-based gateway "${label(n)}" should be followed by catch events or receive tasks.`, elementId: n.id });
+          add({ rule: "gateway.event-based-targets", severity: "warning", message: `Auf ein ereignisbasiertes Gateway „${label(n)}“ sollten fangende Ereignisse oder Empfangsaufgaben folgen.`, elementId: n.id });
         }
       }
     }
@@ -167,7 +167,7 @@ function validateConnectivity(model: BpmnModel, add: (i: ValidationIssue) => voi
     const out = adj.outgoing[n.id] ?? [];
     const inc = adj.incoming[n.id] ?? [];
     if (out.length === 0 && inc.length === 0) {
-      add({ rule: "connectivity.isolated", severity: "warning", message: `Element "${label(n)}" is not connected to the flow.`, elementId: n.id });
+      add({ rule: "connectivity.isolated", severity: "warning", message: `Element „${label(n)}“ ist nicht mit dem Ablauf verbunden.`, elementId: n.id });
     }
   }
 }
@@ -176,13 +176,13 @@ function validateReadability(model: BpmnModel, add: (i: ValidationIssue) => void
   for (const n of Object.values(model.nodes)) {
     if (isActivity(n.type)) {
       if (!n.name || !n.name.trim()) {
-        add({ rule: "readability.task-name", severity: "warning", message: `Activity ${n.id} has no name. Use an object + verb name (e.g. "Approve invoice").`, elementId: n.id });
+        add({ rule: "readability.task-name", severity: "warning", message: `Aktivität ${n.id} hat keinen Namen. Verwenden Sie Objekt + Verb (z. B. „Rechnung freigeben“).`, elementId: n.id });
       } else if (!looksLikeObjectVerb(n.name)) {
-        add({ rule: "readability.object-verb", severity: "info", message: `Task "${n.name}" may not follow object+verb naming. Prefer e.g. "Verb + object".`, elementId: n.id });
+        add({ rule: "readability.object-verb", severity: "info", message: `Aufgabe „${n.name}“ folgt evtl. nicht der Objekt-+-Verb-Benennung.`, elementId: n.id });
       }
     }
     if (n.type === "exclusiveGateway" && n.name && !n.name.trim().endsWith("?")) {
-      add({ rule: "readability.gateway-question", severity: "info", message: `Exclusive gateway "${n.name}" should usually be phrased as a question.`, elementId: n.id });
+      add({ rule: "readability.gateway-question", severity: "info", message: `Exklusives Gateway „${n.name}“ sollte üblicherweise als Frage formuliert werden.`, elementId: n.id });
     }
   }
 }

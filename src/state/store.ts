@@ -81,10 +81,10 @@ interface EditorState {
 }
 
 function seedModel(): BpmnModel {
-  const m = emptyModel({ processId: "Process_1", name: "New process" });
+  const m = emptyModel({ processId: "Process_1", name: "Neuer Prozess" });
   const start = createNode(m, "startEvent", { name: "Start" });
-  const task = createNode(m, "userTask", { name: "Handle request" });
-  const end = createNode(m, "endEvent", { name: "Done" });
+  const task = createNode(m, "userTask", { name: "Anfrage bearbeiten" });
+  const end = createNode(m, "endEvent", { name: "Fertig" });
   createEdge(m, "sequenceFlow", start.id, task.id);
   createEdge(m, "sequenceFlow", task.id, end.id);
   autoLayout(m, m.rootProcessId);
@@ -268,7 +268,7 @@ export const useEditor = create<EditorState>((set, get) => {
             ...get().aiMessages,
             {
               role: "assistant",
-              text: `Generated ${Object.keys(model.nodes).length} elements, ${review.roles.length} role(s), ${review.decisions.length} decision(s), ${review.loops.length} loop(s). Confidence ${(review.confidence * 100).toFixed(0)}%.`,
+              text: `${Object.keys(model.nodes).length} Elemente generiert, ${review.roles.length} Rolle(n), ${review.decisions.length} Entscheidung(en), ${review.loops.length} Schleife(n). Konfidenz ${(review.confidence * 100).toFixed(0)} %.`,
             },
           ],
         });
@@ -276,7 +276,7 @@ export const useEditor = create<EditorState>((set, get) => {
       } catch (err) {
         set({
           aiBusy: false,
-          aiMessages: [...get().aiMessages, { role: "assistant", text: `Generation failed: ${(err as Error).message}` }],
+          aiMessages: [...get().aiMessages, { role: "assistant", text: `Generierung fehlgeschlagen: ${(err as Error).message}` }],
         });
       }
     },
@@ -301,11 +301,11 @@ export const useEditor = create<EditorState>((set, get) => {
 
 function defaultName(type: FlowElementType): string {
   if (type === "startEvent") return "Start";
-  if (type === "endEvent") return "End";
-  if (type.endsWith("Gateway")) return "Decision?";
-  if (type === "userTask") return "User task";
-  if (type === "serviceTask") return "Service task";
-  if (type === "subProcess") return "Sub-process";
-  if (type.endsWith("Task")) return "Task";
+  if (type === "endEvent") return "Ende";
+  if (type.endsWith("Gateway")) return "Entscheidung?";
+  if (type === "userTask") return "Benutzeraufgabe";
+  if (type === "serviceTask") return "Serviceaufgabe";
+  if (type === "subProcess") return "Teilprozess";
+  if (type.endsWith("Task")) return "Aufgabe";
   return "";
 }

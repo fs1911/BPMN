@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_1" targetNamespace="http://flowcraft/bpmn">
+  <bpmn:process id="Process_ai" name="Wenn Eine Rechnung Eingeht, Erfasst Der" isExecutable="true">
+    <bpmn:laneSet id="LaneSet_Process_ai">
+      <bpmn:lane id="Lane_1zly" name="Der Sachbearbeiter">
+        <bpmn:flowNodeRef>startEvent_5zlz</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_2zlz" name="Sachbearbeiter">
+        <bpmn:flowNodeRef>userTask_6zlz</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>exclusiveGateway_8zlz</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_3zlz" name="Abteilungsleiter">
+        <bpmn:flowNodeRef>userTask_azlz</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>exclusiveGateway_czlz</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>endEvent_ezlz</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>exclusiveGateway_izlz</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>endEvent_kzlz</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>endEvent_mzlz</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_4zlz" name="System">
+        <bpmn:flowNodeRef>serviceTask_gzlz</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="startEvent_5zlz" name="Wenn eine Rechnung eingeht, erfasst der Sachbearbeiter" />
+    <bpmn:userTask id="userTask_6zlz" name="Sachbearbeiter prüft die Rechnung gegen die Bestellung" />
+    <bpmn:exclusiveGateway id="exclusiveGateway_8zlz" name="Die Unterlagen unvollständig sind?" />
+    <bpmn:userTask id="userTask_azlz" name="Freigabe erteilen" />
+    <bpmn:exclusiveGateway id="exclusiveGateway_czlz" name="Freigegeben?" default="sequenceFlow_fzlz" />
+    <bpmn:endEvent id="endEvent_ezlz" name="Anforderung abgelehnt" />
+    <bpmn:serviceTask id="serviceTask_gzlz" name="System plant die Zahlung" />
+    <bpmn:exclusiveGateway id="exclusiveGateway_izlz" name="Die Zahlung archiviert ist?" default="sequenceFlow_lzlz" />
+    <bpmn:endEvent id="endEvent_kzlz" name="Gestoppt" />
+    <bpmn:endEvent id="endEvent_mzlz" name="Prozess abgeschlossen" />
+    <bpmn:sequenceFlow id="sequenceFlow_7zlz" name="" sourceRef="startEvent_5zlz" targetRef="userTask_6zlz" />
+    <bpmn:sequenceFlow id="sequenceFlow_9zlz" name="" sourceRef="userTask_6zlz" targetRef="exclusiveGateway_8zlz" />
+    <bpmn:sequenceFlow id="sequenceFlow_bzlz" name="ja" sourceRef="exclusiveGateway_8zlz" targetRef="userTask_azlz" />
+    <bpmn:sequenceFlow id="sequenceFlow_dzlz" name="" sourceRef="userTask_azlz" targetRef="exclusiveGateway_czlz" />
+    <bpmn:sequenceFlow id="sequenceFlow_fzlz" name="abgelehnt" sourceRef="exclusiveGateway_czlz" targetRef="endEvent_ezlz">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${rejected}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="sequenceFlow_hzlz" name="freigegeben" sourceRef="exclusiveGateway_czlz" targetRef="serviceTask_gzlz" />
+    <bpmn:sequenceFlow id="sequenceFlow_jzlz" name="" sourceRef="serviceTask_gzlz" targetRef="exclusiveGateway_izlz" />
+    <bpmn:sequenceFlow id="sequenceFlow_lzlz" name="nein" sourceRef="exclusiveGateway_izlz" targetRef="endEvent_kzlz">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${no}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="sequenceFlow_nzlz" name="ja" sourceRef="exclusiveGateway_izlz" targetRef="endEvent_mzlz" />
+    <bpmn:sequenceFlow id="sequenceFlow_ozlz" name="nein" sourceRef="exclusiveGateway_8zlz" targetRef="userTask_6zlz">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${no}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_ai">
+      <bpmndi:BPMNShape id="Lane_1zly_di" bpmnElement="Lane_1zly" isHorizontal="true">
+        <dc:Bounds x="30" y="60" width="1262" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2zlz_di" bpmnElement="Lane_2zlz" isHorizontal="true">
+        <dc:Bounds x="30" y="240" width="1262" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3zlz_di" bpmnElement="Lane_3zlz" isHorizontal="true">
+        <dc:Bounds x="30" y="420" width="1262" height="222" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_4zlz_di" bpmnElement="Lane_4zlz" isHorizontal="true">
+        <dc:Bounds x="30" y="642" width="1262" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="startEvent_5zlz_di" bpmnElement="startEvent_5zlz">
+        <dc:Bounds x="60" y="132" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="userTask_6zlz_di" bpmnElement="userTask_6zlz">
+        <dc:Bounds x="176" y="290" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="exclusiveGateway_8zlz_di" bpmnElement="exclusiveGateway_8zlz">
+        <dc:Bounds x="376" y="305" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="userTask_azlz_di" bpmnElement="userTask_azlz">
+        <dc:Bounds x="506" y="491" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="exclusiveGateway_czlz_di" bpmnElement="exclusiveGateway_czlz">
+        <dc:Bounds x="706" y="506" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="endEvent_ezlz_di" bpmnElement="endEvent_ezlz">
+        <dc:Bounds x="878" y="513" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="serviceTask_gzlz_di" bpmnElement="serviceTask_gzlz">
+        <dc:Bounds x="836" y="692" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="exclusiveGateway_izlz_di" bpmnElement="exclusiveGateway_izlz">
+        <dc:Bounds x="1036" y="542" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="endEvent_kzlz_di" bpmnElement="endEvent_kzlz">
+        <dc:Bounds x="1166" y="549" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="endEvent_mzlz_di" bpmnElement="endEvent_mzlz">
+        <dc:Bounds x="1166" y="635" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="sequenceFlow_7zlz_di" bpmnElement="sequenceFlow_7zlz">
+        <di:waypoint x="78" y="168" />
+        <di:waypoint x="78" y="180" />
+        <di:waypoint x="80" y="180" />
+        <di:waypoint x="80" y="280" />
+        <di:waypoint x="212" y="280" />
+        <di:waypoint x="212" y="290" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_9zlz_di" bpmnElement="sequenceFlow_9zlz">
+        <di:waypoint x="296" y="330" />
+        <di:waypoint x="376" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_bzlz_di" bpmnElement="sequenceFlow_bzlz">
+        <di:waypoint x="391" y="355" />
+        <di:waypoint x="391" y="370" />
+        <di:waypoint x="390" y="370" />
+        <di:waypoint x="390" y="480" />
+        <di:waypoint x="566" y="480" />
+        <di:waypoint x="566" y="491" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_dzlz_di" bpmnElement="sequenceFlow_dzlz">
+        <di:waypoint x="626" y="531" />
+        <di:waypoint x="626" y="530" />
+        <di:waypoint x="706" y="530" />
+        <di:waypoint x="706" y="531" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_fzlz_di" bpmnElement="sequenceFlow_fzlz">
+        <di:waypoint x="756" y="521" />
+        <di:waypoint x="756" y="520" />
+        <di:waypoint x="870" y="520" />
+        <di:waypoint x="870" y="530" />
+        <di:waypoint x="878" y="530" />
+        <di:waypoint x="878" y="531" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_hzlz_di" bpmnElement="sequenceFlow_hzlz">
+        <di:waypoint x="741" y="556" />
+        <di:waypoint x="741" y="570" />
+        <di:waypoint x="740" y="570" />
+        <di:waypoint x="740" y="680" />
+        <di:waypoint x="896" y="680" />
+        <di:waypoint x="896" y="692" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_jzlz_di" bpmnElement="sequenceFlow_jzlz">
+        <di:waypoint x="956" y="732" />
+        <di:waypoint x="956" y="730" />
+        <di:waypoint x="1030" y="730" />
+        <di:waypoint x="1030" y="570" />
+        <di:waypoint x="1036" y="570" />
+        <di:waypoint x="1036" y="567" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_lzlz_di" bpmnElement="sequenceFlow_lzlz">
+        <di:waypoint x="1086" y="557" />
+        <di:waypoint x="1086" y="560" />
+        <di:waypoint x="1160" y="560" />
+        <di:waypoint x="1160" y="570" />
+        <di:waypoint x="1166" y="570" />
+        <di:waypoint x="1166" y="567" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_nzlz_di" bpmnElement="sequenceFlow_nzlz">
+        <di:waypoint x="1086" y="577" />
+        <di:waypoint x="1086" y="580" />
+        <di:waypoint x="1140" y="580" />
+        <di:waypoint x="1140" y="650" />
+        <di:waypoint x="1166" y="650" />
+        <di:waypoint x="1166" y="653" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sequenceFlow_ozlz_di" bpmnElement="sequenceFlow_ozlz">
+        <di:waypoint x="411" y="355" />
+        <di:waypoint x="411" y="808" />
+        <di:waypoint x="260" y="808" />
+        <di:waypoint x="260" y="370" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

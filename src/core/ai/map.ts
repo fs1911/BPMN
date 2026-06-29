@@ -36,6 +36,8 @@ export interface MappingResult {
 export function mapIrToModel(ir: ProcessIR): MappingResult {
   const model = emptyModel({ processId: "Process_ai", name: ir.title });
   const provenance: Record<string, string> = {};
+  const de = ir.lang === "de";
+  const lbl = (t?: string) => labelFor(t, de);
 
   // Lanes from roles (+ a System lane if systems are present).
   const laneByRole: Record<string, string> = {};
@@ -71,7 +73,7 @@ export function mapIrToModel(ir: ProcessIR): MappingResult {
   const connectPending = (toNode: string) => {
     for (const p of pending) {
       const e = createEdge(model, "sequenceFlow", p.from, toNode, {
-        name: p.condition,
+        name: lbl(p.condition),
         condition: p.condition && !/^(yes|approved)$/i.test(p.condition) ? `\${${slug(p.condition)}}` : undefined,
         isDefault: p.isDefault,
       });
@@ -109,6 +111,8 @@ export function mapIrToModel(ir: ProcessIR): MappingResult {
         setPending: (p) => (pending = p),
         assignLane,
         currentRole,
+        de,
+        lbl,
       });
       continue;
     }
@@ -132,7 +136,7 @@ export function mapIrToModel(ir: ProcessIR): MappingResult {
       const target = idMap[b.loopTo];
       if (fromGw && target) {
         const e = createEdge(model, "sequenceFlow", fromGw, target, {
-          name: b.condition,
+          name: lbl(b.condition),
           condition: `\${${slug(b.condition)}}`,
         });
         provenance[e.id] = `rework loop: ${b.condition}`;
@@ -153,6 +157,8 @@ interface BuildCtx {
   setPending: (p: Pending[]) => void;
   assignLane: (nodeId: string, role?: string, system?: string) => void;
   currentRole?: string;
+  de: boolean;
+  lbl: (t?: string) => string;
 }
 
 function buildDecision(
@@ -165,10 +171,11 @@ function buildDecision(
   // Approval: create the approval activity first, then the gateway.
   let gatewaySource: string;
   if (step.kind === "approval") {
-    const task = createNode(model, "userTask", { name: cleanApprovalName(step.name), provenance: step.provenance });
+    const task = createNode(model, "userTask", { name: cleanApprovalName(step.name, ctx.de), provenance: step.provenance });
     ctx.assignLane(task.id, step.role ?? ctx.currentRole);
     ctx.connectPending(task.id);
-    const gw = createNode(model, "exclusiveGateway", { name: step.name, provenance: step.provenance });
+    const gwName = ctx.de && /^approved\??$/i.test(step.name) ? "Freigegeben?" : step.name;
+    const gw = createNode(model, "exclusiveGateway", { name: gwName, provenance: step.provenance });
     ctx.assignLane(gw.id, step.role ?? ctx.currentRole);
     createEdge(model, "sequenceFlow", task.id, gw.id);
     idMap[step.id] = task.id;
@@ -194,13 +201,17 @@ function buildDecision(
 
   // Negative branch: loop handled later; otherwise terminate at an end event.
   if (negative && !negative.loopTo) {
-    const end = createNode(model, "endEvent", {
-      name: step.kind === "approval" ? "Request rejected" : "Stopped",
-      provenance: step.provenance,
-    });
+    const endName = ctx.de
+      ? step.kind === "approval"
+        ? "Anforderung abgelehnt"
+        : "Gestoppt"
+      : step.kind === "approval"
+        ? "Request rejected"
+        : "Stopped";
+    const end = createNode(model, "endEvent", { name: endName, provenance: step.provenance });
     ctx.assignLane(end.id, step.role ?? ctx.currentRole);
     const e = createEdge(model, "sequenceFlow", gatewaySource, end.id, {
-      name: negative.condition,
+      name: ctx.lbl(negative.condition),
       condition: `\${${slug(negative.condition)}}`,
       isDefault: true,
     });
@@ -222,7 +233,11 @@ function eventDefFor(step: StepIR): EventDefinitionType | undefined {
   return undefined;
 }
 
-function cleanApprovalName(name: string): string {
+function cleanApprovalName(name: string, de: boolean): string {
+  if (de) {
+    if (/^approved\??$/i.test(name)) return "Freigabe erteilen";
+    return name.replace(/\?$/, "") + " freigeben";
+  }
   // "Approved?" → "Approve request"; keep a verb form for the activity.
   const base = name.replace(/\?$/, "").replace(/^approved$/i, "Approve request");
   if (/^approve/i.test(base)) return base;
@@ -236,13 +251,29 @@ function slug(s: string): string {
     .replace(/^_|_$/g, "");
 }
 
+/** Localize canonical branch tokens to display labels. */
+const DE_LABELS: Record<string, string> = {
+  approved: "freigegeben",
+  rejected: "abgelehnt",
+  yes: "ja",
+  no: "nein",
+  ok: "ok",
+  incomplete: "unvollständig",
+};
+function labelFor(token: string | undefined, de: boolean): string {
+  if (!token) return token ?? "";
+  if (!de) return token;
+  return DE_LABELS[token.toLowerCase()] ?? token;
+}
+
 function buildReview(ir: ProcessIR, provenance: Record<string, string>): ReviewReport {
   const decisions = ir.steps.filter((s) => s.kind === "decision").map((s) => s.name);
   const approvals = ir.steps.filter((s) => s.kind === "approval").map((s) => s.name);
   const checks = ir.steps.filter((s) => s.kind === "check").map((s) => s.name);
   const exceptions = ir.steps.filter((s) => s.kind === "exception").map((s) => s.name);
+  const de = ir.lang === "de";
   const loops = ir.steps
-    .flatMap((s) => (s.branches ?? []).filter((b) => b.loopTo).map((b) => `${s.name} → ${b.condition}`));
+    .flatMap((s) => (s.branches ?? []).filter((b) => b.loopTo).map((b) => `${s.name} → ${labelFor(b.condition, de)}`));
 
   const total = ir.steps.length || 1;
   const ambiguityPenalty = Math.min(0.4, ir.ambiguities.length * 0.12);
