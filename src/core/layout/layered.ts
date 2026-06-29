@@ -234,6 +234,28 @@ function assignCoordinates(
   }
 }
 
+/**
+ * Size task-like activities so their label fits inside the box (bpmn-js wraps
+ * text but clips overflow). Prevents the squished/cut-off labels that make
+ * AI-generated diagrams look unfinished. Events/gateways keep fixed sizes
+ * (their labels render externally).
+ */
+export function fitLabelSizes(model: BpmnModel, scope: string): void {
+  for (const n of Object.values(model.nodes)) {
+    if (n.parent !== scope) continue;
+    const taskLike = n.type === "task" || n.type.endsWith("Task") || n.type === "callActivity";
+    if (!taskLike || !n.name) continue;
+    const charsPerLine = 16; // ~width 100 at 12px
+    const longestWord = Math.max(...n.name.split(/\s+/).map((w) => w.length), 1);
+    const width = Math.max(110, Math.min(170, longestWord * 7.2));
+    const cpl = Math.max(charsPerLine, Math.floor((width - 16) / 6.6));
+    const lines = Math.max(1, Math.ceil(n.name.length / cpl));
+    const height = Math.max(70, Math.min(150, lines * 16 + 30));
+    n.bounds.width = Math.round(width);
+    n.bounds.height = Math.round(height);
+  }
+}
+
 function median(xs: number[]): number {
   if (!xs.length) return 0;
   const s = [...xs].sort((a, b) => a - b);

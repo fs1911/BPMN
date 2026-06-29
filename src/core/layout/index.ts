@@ -1,6 +1,6 @@
 import { BpmnModel } from "../model";
 import { routeMessageFlows, routeScope, RouteOptions } from "../routing/router";
-import { LayoutOptions, LayoutResult, contentBounds, layoutScope } from "./layered";
+import { LayoutOptions, LayoutResult, contentBounds, fitLabelSizes, layoutScope } from "./layered";
 import { placeLabels } from "./labels";
 
 export * from "./layered";
@@ -21,6 +21,7 @@ export function autoLayout(
   scope = model.rootProcessId,
   opts: AutoLayoutOptions = {},
 ): LayoutResult {
+  fitLabelSizes(model, scope);
   const result = layoutScope(model, scope, opts.layout);
   routeScope(model, scope, opts.routing);
   routeMessageFlows(model);
