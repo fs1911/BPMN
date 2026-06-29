@@ -16,12 +16,12 @@ await page.screenshot({ path: "scripts/01-initial.png" });
 
 // Generate from German text via the AI panel
 await page.locator(".ai-generate textarea").first().fill(
-  `Wenn eine Rechnung eingeht, erfasst der Sachbearbeiter sie im System.
-Der Sachbearbeiter prüft die Rechnung gegen die Bestellung.
-Wenn die Unterlagen unvollständig sind, zurück an die Erfassung der Rechnung senden.
-Der Abteilungsleiter gibt die Rechnung frei.
-Das System plant die Zahlung.
-Der Prozess endet, wenn die Zahlung archiviert ist.`,
+  `Wenn eine Bestellanforderung eingeht, erfasst der Sachbearbeiter sie im System.
+Der Einkäufer prüft die Anforderung auf Vollständigkeit.
+Wenn die Anforderung unvollständig ist, zurück an den Antragsteller senden.
+Der Abteilungsleiter gibt die Anforderung frei.
+Das System erstellt eine Bestellung.
+Der Prozess endet, wenn die Bestellung an den Lieferanten gesendet wurde.`,
 );
 await page.getByText("BPMN-Entwurf generieren").click();
 await page.waitForTimeout(1200);

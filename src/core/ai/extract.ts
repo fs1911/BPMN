@@ -231,13 +231,23 @@ function singular(w: string): string {
 }
 
 function capitalize(s: string): string {
-  return s.replace(/\b\w/g, (c) => c.toUpperCase());
+  // Capitalize the first letter of each word. Avoid \b\w which mis-fires on
+  // umlauts (e.g. "einkäufer" -> "EinkäUfer").
+  return s
+    .split(/\s+/)
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
 }
+
+const STRONG_END = /\b(prozess|process|vorgang)\b/i;
 
 function classify(text: string, isFirst: boolean, isLast: boolean): StepKind {
   // Boundary sentences win first so a German "Wenn … eingeht" opener is a start
   // event rather than a decision.
   if (isFirst && START_RE.test(text)) return "start";
+  // "Der Prozess endet, wenn …" is an END, not a decision — the "wenn" here is
+  // descriptive, not a branch. A strong end phrase overrides the decision check.
+  if (isLast && END_RE.test(text) && STRONG_END.test(text)) return "end";
   if (isLast && END_RE.test(text) && !APPROVAL_RE.test(text) && !DECISION_RE.test(text)) return "end";
   if (DECISION_RE.test(text) && !APPROVAL_RE.test(text)) return "decision";
   if (APPROVAL_RE.test(text)) return "approval";
@@ -249,18 +259,60 @@ function classify(text: string, isFirst: boolean, isLast: boolean): StepKind {
 
 /** Produce a readable object+verb name from a clause. */
 export function normalizeName(text: string, kind: StepKind): string {
+  if (kind === "start") return eventName(text, "start");
+  if (kind === "end") return eventName(text, "end");
   let t = text.replace(/^(?:the |a |an |der |die |das |dem |den |ein |eine |einen )/i, "").trim();
   // drop trailing role attribution (EN + DE)
   t = t.replace(/\b(?:by|durch|vom|von) (?:the |a |dem |der |den )?[\wäöüß ]+$/i, "").trim();
   t = t.replace(/^(?:then|next|after that|afterwards|dann|danach|anschließend|zuerst)\s+/i, "");
   if (kind === "decision" || kind === "approval") {
-    // phrase as a question
-    const cond = extractCondition(t);
-    if (cond) return capitalizeFirst(cond) + "?";
+    // phrase as a concise question
+    let cond = extractCondition(t);
+    if (cond) {
+      cond = cond
+        .replace(/^(?:die|der|das|den|dem|the|a|an)\s+/i, "")
+        .replace(/\s+(?:ist|sind|wurde|wurden|wird|war|waren|is|are|was|were|been|hat|haben)\b\.?$/i, "")
+        .trim();
+      return capitalizeFirst(cond) + "?";
+    }
   }
   // Capitalize verb, keep concise (max ~6 words)
   const words = t.split(/\s+/).slice(0, 7);
   return capitalizeFirst(words.join(" "));
+}
+
+const RECEIVE_VERB = /(eingeht|eingegangen|eintrifft|empfangen|erhalten|gestellt|received|submitted|arrives|comes? in)/i;
+const END_STATE = /(archiviert|abgeschlossen|geschlossen|versendet|gesendet|verschickt|ausgestellt|fertig|erledigt|beendet|archived|closed|sent|issued|completed|done)/i;
+
+/** Produce a short noun+state event name instead of a full clause. */
+function eventName(text: string, kind: "start" | "end"): string {
+  // pull out the main noun (object) of the clause
+  const noun = mainNoun(text);
+  if (kind === "start") {
+    if (RECEIVE_VERB.test(text)) return `${noun} eingegangen`;
+    return noun ? `${noun} gestartet` : "Start";
+  }
+  // end: prefer "<main object> <state>" (e.g. "Bestellung gesendet")
+  const st = text.match(END_STATE);
+  if (st && noun) return `${noun} ${stateWord(st[0])}`;
+  if (END_STATE.test(text)) return "Prozess abgeschlossen";
+  return noun ? `${noun} fertig` : "Ende";
+}
+
+function stateWord(s: string): string {
+  const m = s.match(END_STATE);
+  if (!m) return "abgeschlossen";
+  const map: Record<string, string> = { archiviert: "archiviert", archived: "archiviert", gesendet: "gesendet", versendet: "gesendet", sent: "gesendet", ausgestellt: "ausgestellt", issued: "ausgestellt", geschlossen: "geschlossen", closed: "geschlossen" };
+  return map[m[1].toLowerCase()] ?? "abgeschlossen";
+}
+
+/** Best-effort main object noun of a clause (capitalised German nouns win). */
+function mainNoun(text: string): string {
+  // a capitalised word that isn't a sentence-start filler
+  const caps = text.match(/\b([A-ZÄÖÜ][a-zäöüß]{3,})\b/g) ?? [];
+  const skip = /^(Wenn|Sobald|Der|Die|Das|Den|Dem|Ein|Eine|Einen|When|The|Prozess)$/;
+  const noun = caps.find((w) => !skip.test(w));
+  return noun ? capitalizeFirst(noun) : "";
 }
 
 function capitalizeFirst(s: string): string {

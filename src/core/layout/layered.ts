@@ -404,9 +404,10 @@ function layoutWithLanes(
 
   // Compute each lane's required height: max over ranks of the stacked height
   // of that lane's nodes in that rank.
+  const LANE_PAD = 16; // vertical inner padding inside a lane band
   const laneHeight: Record<string, number> = {};
   for (const lid of laneIds) {
-    let maxH = 80;
+    let maxH = 70;
     for (const rk of ranks) {
       const inLane = rk.filter((id) => laneOf[id] === lid);
       const stack =
@@ -414,7 +415,8 @@ function layoutWithLanes(
         opts.nodeSep;
       maxH = Math.max(maxH, stack);
     }
-    laneHeight[lid] = maxH + opts.nodeSep * 2;
+    // tight padding so a single-element lane is a slim track, not a big band
+    laneHeight[lid] = maxH + LANE_PAD * 2;
   }
 
   // Assign lane vertical bands.
@@ -454,10 +456,10 @@ function layoutWithLanes(
         );
         const ns = edges.map((e) => (e.source === id ? e.target : e.source)).filter((n) => laneOf[n] === lid);
         if (ns.length) yCenter[id] = ns.reduce((a, n) => a + yCenter[n], 0) / ns.length;
-        // clamp inside band
+        // clamp inside band (small inner pad, consistent with lane height)
         const half = model.nodes[id].bounds.height / 2;
-        const lo = laneTop[lid] + opts.nodeSep + half;
-        const hi = laneTop[lid] + laneHeight[lid] - opts.nodeSep - half;
+        const lo = laneTop[lid] + LANE_PAD + half;
+        const hi = Math.max(lo, laneTop[lid] + laneHeight[lid] - LANE_PAD - half);
         yCenter[id] = Math.min(hi, Math.max(lo, yCenter[id]));
       }
       const byLane: Record<string, string[]> = {};
@@ -470,8 +472,8 @@ function layoutWithLanes(
   const clampToBand = (id: string, v: number): number => {
     const lid = laneOf[id];
     const half = model.nodes[id].bounds.height / 2;
-    const lo = laneTop[lid] + opts.nodeSep + half;
-    const hi = laneTop[lid] + laneHeight[lid] - opts.nodeSep - half;
+    const lo = laneTop[lid] + LANE_PAD + half;
+    const hi = Math.max(lo, laneTop[lid] + laneHeight[lid] - LANE_PAD - half);
     return Math.min(hi, Math.max(lo, v));
   };
   const sameLaneAdj: Adjacency = { outgoing: {}, incoming: {} };

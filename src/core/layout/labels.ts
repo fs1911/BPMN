@@ -67,8 +67,8 @@ export function placeLabels(model: BpmnModel, scope: string): void {
     const cx = n.bounds.x + n.bounds.width / 2;
     const candidates: Bounds[] = [
       { x: cx - w / 2, y: n.bounds.y + n.bounds.height + 4, width: w, height: h }, // below
+      { x: n.bounds.x + n.bounds.width + 6, y: n.bounds.y + n.bounds.height / 2 - h / 2, width: w, height: h }, // right (preferred over above to avoid clipping at the pool top)
       { x: cx - w / 2, y: n.bounds.y - h - 4, width: w, height: h }, // above
-      { x: n.bounds.x + n.bounds.width + 6, y: n.bounds.y + n.bounds.height / 2 - h / 2, width: w, height: h }, // right
       { x: n.bounds.x - w - 6, y: n.bounds.y + n.bounds.height / 2 - h / 2, width: w, height: h }, // left
     ];
     // plus downward-shifted fallbacks below the shape

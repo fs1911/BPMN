@@ -505,7 +505,10 @@ function pushRef(model: BpmnModel, laneId: string, nodeId: string): void {
 }
 
 function capitalize(s: string): string {
-  return s.replace(/\b\w/g, (c) => c.toUpperCase());
+  return s
+    .split(/\s+/)
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
 }
 
 function slug(s: string): string {

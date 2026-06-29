@@ -40,15 +40,25 @@ export function mapIrToModel(ir: ProcessIR): MappingResult {
   const de = ir.lang === "de";
   const lbl = (t?: string) => labelFor(t, de);
 
-  // Lanes from roles (+ a System lane if systems are present).
+  // A role only earns a lane if it actually PERFORMS work (a task/check/approval
+  // or the start). Roles that appear merely as recipients ("zurück an den
+  // Antragsteller", "an den Lieferanten gesendet") must not spawn empty lanes —
+  // that was the main cause of the sprawling, mostly-empty swimlane diagrams.
+  const acting = new Set<string>();
+  for (const s of ir.steps) {
+    if (s.role && (s.kind === "task" || s.kind === "check" || s.kind === "approval" || s.kind === "start")) {
+      acting.add(s.role);
+    }
+  }
+  const laneRoles = ir.roles.filter((r) => acting.has(r));
+
+  // Lanes from acting roles (+ a System lane if systems are present).
   const laneByRole: Record<string, string> = {};
-  const useLanes = ir.roles.length > 0 || ir.systems.length > 0;
+  const useLanes = laneRoles.length > 0 || ir.systems.length > 0;
   if (useLanes) {
-    // bpmn-js renders lanes only inside a pool (participant), so wrap the
-    // process in a participant whenever we use swimlanes. A clean generic pool
-    // name reads better than a sentence fragment derived from the input.
+    // bpmn-js renders lanes only inside a pool (participant).
     createParticipant(model, { name: de ? "Prozess" : "Process", processRef: model.rootProcessId });
-    for (const role of ir.roles) {
+    for (const role of laneRoles) {
       const lane = createLane(model, { name: role, parent: model.rootProcessId });
       laneByRole[role] = lane.id;
     }
@@ -57,23 +67,26 @@ export function mapIrToModel(ir: ProcessIR): MappingResult {
       laneByRole["__system__"] = lane.id;
     }
   }
+  const firstLaneId = laneRoles.length ? laneByRole[laneRoles[0]] : Object.values(laneByRole)[0];
+
+  const idMap: Record<string, string> = {}; // step.id -> created node id (primary)
+  let pending: Pending[] = [];
+  let currentRole: string | undefined;
 
   const assignLane = (nodeId: string, role?: string, system?: string): void => {
     if (!useLanes) return;
     let laneId: string | undefined;
     if (role && laneByRole[role]) laneId = laneByRole[role];
     else if (system && laneByRole["__system__"]) laneId = laneByRole["__system__"];
-    else laneId = laneByRole[ir.roles[0]] ?? Object.values(laneByRole)[0];
+    // fall back to the lane of the last acting role, not always the first lane
+    else if (currentRole && laneByRole[currentRole]) laneId = laneByRole[currentRole];
+    else laneId = firstLaneId;
     if (laneId) {
       model.nodes[nodeId].lane = laneId;
       const refs = model.lanes[laneId].flowNodeRefs;
       if (!refs.includes(nodeId)) refs.push(nodeId);
     }
   };
-
-  const idMap: Record<string, string> = {}; // step.id -> created node id (primary)
-  let pending: Pending[] = [];
-  let currentRole: string | undefined;
 
   const connectPending = (toNode: string) => {
     for (const p of pending) {
@@ -88,14 +101,16 @@ export function mapIrToModel(ir: ProcessIR): MappingResult {
   };
 
   for (const step of ir.steps) {
-    currentRole = step.role ?? currentRole;
+    // carry forward only roles that actually have a lane, so gateways/events
+    // inherit the lane of the last acting role rather than a recipient role.
+    if (step.role && laneByRole[step.role]) currentRole = step.role;
     if (step.kind === "start") {
       const n = createNode(model, "startEvent", {
         name: step.name,
         eventDefinition: eventDefFor(step),
         provenance: step.provenance,
       });
-      assignLane(n.id, step.role ?? ir.roles[0], step.system);
+      assignLane(n.id, step.role && laneByRole[step.role] ? step.role : currentRole, step.system);
       idMap[step.id] = n.id;
       provenance[n.id] = step.provenance;
       pending = [{ from: n.id }];
@@ -123,7 +138,7 @@ export function mapIrToModel(ir: ProcessIR): MappingResult {
     }
     // task / check / exception → activity
     const type = activityType(step);
-    const n = createNode(model, type, { name: step.name, provenance: step.provenance });
+    const n = createNode(model, type, { name: stripSubject(step.name, step.role), provenance: step.provenance });
     // service tasks belong to the System lane unless an explicit role was given
     const laneRole = type === "serviceTask" && !step.role ? undefined : (step.role ?? currentRole);
     assignLane(n.id, laneRole, step.system);
@@ -152,7 +167,7 @@ export function mapIrToModel(ir: ProcessIR): MappingResult {
   validate(model);
   autoLayout(model, model.rootProcessId);
 
-  const review = buildReview(ir, provenance);
+  const review = buildReview(ir, provenance, laneRoles);
   return { model, review };
 }
 
@@ -224,6 +239,20 @@ function buildDecision(
   ctx.setPending(newPending);
 }
 
+/** Drop a leading subject ("Einkäufer prüft …" -> "Prüft …") so the task name
+ * reads as the activity, not the actor (the actor is already the lane). */
+function stripSubject(name: string, role?: string): string {
+  const subjects = [role?.split(/\s+/)[0], "System"].filter(Boolean) as string[];
+  for (const subj of subjects) {
+    const re = new RegExp(`^${subj}\\s+`, "i");
+    if (re.test(name)) {
+      const rest = name.replace(re, "").trim();
+      if (rest.length > 2) return rest.charAt(0).toUpperCase() + rest.slice(1);
+    }
+  }
+  return name;
+}
+
 function activityType(step: StepIR): FlowElementType {
   if (step.system && !step.role) return "serviceTask";
   if (step.kind === "check" || step.role) return "userTask";
@@ -270,7 +299,7 @@ function labelFor(token: string | undefined, de: boolean): string {
   return DE_LABELS[token.toLowerCase()] ?? token;
 }
 
-function buildReview(ir: ProcessIR, provenance: Record<string, string>): ReviewReport {
+function buildReview(ir: ProcessIR, provenance: Record<string, string>, laneRoles: string[]): ReviewReport {
   const de = ir.lang === "de";
   const localName = (n: string) => (de && /^approved\??$/i.test(n) ? "Freigegeben?" : n);
   const decisions = ir.steps.filter((s) => s.kind === "decision").map((s) => s.name);
@@ -286,7 +315,7 @@ function buildReview(ir: ProcessIR, provenance: Record<string, string>): ReviewR
   const confidence = Math.max(0.2, Math.min(1, 1 - ambiguityPenalty - rolePenalty - (total > 30 ? 0.1 : 0)));
 
   return {
-    roles: ir.roles,
+    roles: laneRoles.length ? laneRoles : ir.roles,
     systems: ir.systems,
     dataObjects: ir.dataObjects,
     decisions,
