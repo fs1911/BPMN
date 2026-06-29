@@ -48,6 +48,11 @@ await page.getByText("Überprüfung", { exact: true }).click();
 await page.waitForTimeout(200);
 await page.screenshot({ path: "scripts/05-review.png" });
 
+// Dark mode
+await page.locator(".toolbar button[title='Design wechseln']").click();
+await page.waitForTimeout(300);
+await page.screenshot({ path: "scripts/06-dark.png" });
+
 await browser.close();
 
 if (genShapes <= seedShapes || genConns < 4) {

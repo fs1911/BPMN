@@ -87,6 +87,8 @@ export interface FlowNode {
   documentation?: string;
   /** AI provenance: which sentence/snippet produced this element. */
   provenance?: string;
+  /** computed external-label placement (events/gateways/data). */
+  labelBounds?: Bounds;
 }
 
 export type EdgeType = "sequenceFlow" | "messageFlow" | "association";
@@ -108,6 +110,8 @@ export interface Edge {
   isBackEdge?: boolean;
   documentation?: string;
   provenance?: string;
+  /** computed label placement. */
+  labelBounds?: Bounds;
 }
 
 export interface Lane {

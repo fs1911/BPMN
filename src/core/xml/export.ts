@@ -208,6 +208,11 @@ function writeDiagram(w: Writer, model: BpmnModel): void {
       n.type === "subProcess" ? ` isExpanded="${n.collapsed ? "false" : "true"}"` : "";
     w.open(`<bpmndi:BPMNShape id="${esc(n.id)}_di" bpmnElement="${esc(n.id)}"${expanded}>`);
     w.line(boundsXml(n.bounds));
+    if (n.labelBounds) {
+      w.open(`<bpmndi:BPMNLabel>`);
+      w.line(boundsXml(n.labelBounds));
+      w.close(`</bpmndi:BPMNLabel>`);
+    }
     w.close(`</bpmndi:BPMNShape>`);
   }
   // edges
@@ -216,6 +221,11 @@ function writeDiagram(w: Writer, model: BpmnModel): void {
     w.open(`<bpmndi:BPMNEdge id="${esc(e.id)}_di" bpmnElement="${esc(e.id)}">`);
     const wps = e.waypoints ?? [];
     for (const p of wps) w.line(`<di:waypoint x="${round(p.x)}" y="${round(p.y)}" />`);
+    if (e.name && e.labelBounds) {
+      w.open(`<bpmndi:BPMNLabel>`);
+      w.line(boundsXml(e.labelBounds));
+      w.close(`</bpmndi:BPMNLabel>`);
+    }
     w.close(`</bpmndi:BPMNEdge>`);
   }
 

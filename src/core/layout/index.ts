@@ -1,8 +1,10 @@
 import { BpmnModel } from "../model";
 import { routeMessageFlows, routeScope, RouteOptions } from "../routing/router";
 import { LayoutOptions, LayoutResult, contentBounds, layoutScope } from "./layered";
+import { placeLabels } from "./labels";
 
 export * from "./layered";
+export { placeLabels } from "./labels";
 
 export interface AutoLayoutOptions {
   layout?: Partial<LayoutOptions>;
@@ -22,6 +24,7 @@ export function autoLayout(
   const result = layoutScope(model, scope, opts.layout);
   routeScope(model, scope, opts.routing);
   routeMessageFlows(model);
+  placeLabels(model, scope);
   return result;
 }
 
@@ -29,6 +32,7 @@ export function autoLayout(
 export function rerouteOnly(model: BpmnModel, scope = model.rootProcessId, opts: AutoLayoutOptions = {}): void {
   routeScope(model, scope, opts.routing);
   routeMessageFlows(model);
+  placeLabels(model, scope);
 }
 
 export { contentBounds };

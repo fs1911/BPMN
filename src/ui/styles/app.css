@@ -123,5 +123,30 @@ textarea { resize: vertical; }
 .review-block.ambiguities { color: var(--warn); }
 .review-block.ambiguities b { color: var(--text); }
 
-/* Keep the bpmn.io properties panel readable in dark mode */
+/* ---- Dark mode for the bpmn-js canvas ---- */
+html[data-theme="dark"] .bjs-canvas,
+html[data-theme="dark"] .djs-container { background: #161a21 !important; }
+/* shape bodies: dark fill, light outline */
+html[data-theme="dark"] .djs-visual > :is(rect, circle, ellipse, polygon) {
+  fill: #232b36 !important;
+  stroke: #cfd8e3 !important;
+}
+/* lines/strokes (connections, gateway glyphs): stroke only — never fill, or open
+   paths render as filled triangles */
+html[data-theme="dark"] .djs-visual > path { stroke: #cfd8e3 !important; }
+html[data-theme="dark"] .djs-visual > path[fill]:not([fill="none"]) { fill: #cfd8e3 !important; }
+/* arrowheads live in <marker> defs */
+html[data-theme="dark"] .djs-container marker :is(path, polyline, circle) {
+  fill: #cfd8e3 !important;
+  stroke: #cfd8e3 !important;
+}
+html[data-theme="dark"] .djs-label,
+html[data-theme="dark"] .djs-visual text { fill: #e6ebf2 !important; }
+html[data-theme="dark"] .djs-palette,
+html[data-theme="dark"] .djs-context-pad .entry,
+html[data-theme="dark"] .djs-popup { background: #1e242d !important; color: #e6ebf2 !important; border-color: #333c49 !important; }
+html[data-theme="dark"] .djs-palette .entry { color: #e6ebf2 !important; }
+
+/* Keep the bpmn.io properties panel readable (light) in both themes */
+.bjs-properties { background: #fbfcfd; }
 html[data-theme="dark"] .bjs-properties { color: #1c2530; background: #fff; }

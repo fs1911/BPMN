@@ -272,11 +272,12 @@ function labelFor(token: string | undefined, de: boolean): string {
 }
 
 function buildReview(ir: ProcessIR, provenance: Record<string, string>): ReviewReport {
+  const de = ir.lang === "de";
+  const localName = (n: string) => (de && /^approved\??$/i.test(n) ? "Freigegeben?" : n);
   const decisions = ir.steps.filter((s) => s.kind === "decision").map((s) => s.name);
-  const approvals = ir.steps.filter((s) => s.kind === "approval").map((s) => s.name);
+  const approvals = ir.steps.filter((s) => s.kind === "approval").map((s) => localName(s.name));
   const checks = ir.steps.filter((s) => s.kind === "check").map((s) => s.name);
   const exceptions = ir.steps.filter((s) => s.kind === "exception").map((s) => s.name);
-  const de = ir.lang === "de";
   const loops = ir.steps
     .flatMap((s) => (s.branches ?? []).filter((b) => b.loopTo).map((b) => `${s.name} → ${labelFor(b.condition, de)}`));
 

@@ -74,6 +74,21 @@ describe("layered layout", () => {
     expect(a.nodes["check"].bounds).toEqual(b.nodes["check"].bounds);
   });
 
+  it("places external labels without overlapping shapes", () => {
+    const m = buildSampleProcess();
+    autoLayout(m, "P");
+    const shapes = Object.values(m.nodes).map((n) => n.bounds);
+    const overlap = (a: any, b: any) =>
+      a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    for (const n of Object.values(m.nodes)) {
+      if (!n.labelBounds) continue;
+      for (const s of shapes) {
+        if (s === n.bounds) continue;
+        expect(overlap(n.labelBounds, s), `label of ${n.id} overlaps a shape`).toBe(false);
+      }
+    }
+  });
+
   it("reports content bounds", () => {
     const m = buildSampleProcess();
     autoLayout(m, "P");

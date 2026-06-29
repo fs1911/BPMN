@@ -64,6 +64,27 @@ const DE: Record<string, string> = {
   "Empty Pool": "Leerer Pool",
   "Pool": "Pool",
   "Lane": "Bahn",
+  // properties panel (also routed through translate)
+  "General": "Allgemein",
+  "Documentation": "Dokumentation",
+  "Name": "Name",
+  "Id": "ID",
+  "ID": "ID",
+  "Process": "Prozess",
+  "Details": "Details",
+  "Element documentation": "Element-Dokumentation",
+  "Process name": "Prozessname",
+  "Process Id": "Prozess-ID",
+  "Executable": "Ausführbar",
+  "Version tag": "Versions-Tag",
+  "Default flow": "Standardfluss",
+  "Condition Type": "Bedingungstyp",
+  "Condition": "Bedingung",
+  "Expression": "Ausdruck",
+  "Conditional": "Bedingt",
+  "Multi-instance": "Mehrfachinstanz",
+  "Type": "Typ",
+  "Value": "Wert",
 };
 
 export function translateModule() {
