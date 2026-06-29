@@ -164,11 +164,82 @@ export function mapIrToModel(ir: ProcessIR): MappingResult {
     }
   }
 
+  if (useLanes) {
+    inferWeakLanes(model);
+    removeEmptyLanes(model);
+  }
+
   validate(model);
   autoLayout(model, model.rootProcessId);
 
   const review = buildReview(ir, provenance, laneRoles);
   return { model, review };
+}
+
+/**
+ * Generic, process-agnostic lane inference: events and gateways have no real
+ * "actor", so they should sit in the lane of the flow they belong to. We
+ * propagate the lane of each weak node from its predecessor (preferred) or
+ * successor along sequence flows, iterating to a fixpoint. Works for any
+ * process regardless of shape or length.
+ */
+function isWeakForLane(type: FlowElementType): boolean {
+  return (
+    type === "endEvent" ||
+    type === "intermediateThrowEvent" ||
+    type === "intermediateCatchEvent" ||
+    type === "boundaryEvent" ||
+    type.endsWith("Gateway")
+  );
+}
+
+function moveToLane(model: BpmnModel, nodeId: string, laneId: string): void {
+  const node = model.nodes[nodeId];
+  if (!node || node.lane === laneId) return;
+  for (const lane of Object.values(model.lanes)) {
+    lane.flowNodeRefs = lane.flowNodeRefs.filter((r) => r !== nodeId);
+  }
+  node.lane = laneId;
+  if (!model.lanes[laneId].flowNodeRefs.includes(nodeId)) model.lanes[laneId].flowNodeRefs.push(nodeId);
+}
+
+function inferWeakLanes(model: BpmnModel): void {
+  const seq = Object.values(model.edges).filter((e) => e.type === "sequenceFlow");
+  // cap scales with size so long chains of gateways/events still converge
+  const maxPasses = Math.max(8, Object.keys(model.nodes).length);
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let changed = false;
+    for (const node of Object.values(model.nodes)) {
+      if (!isWeakForLane(node.type)) continue;
+      const predLane = seq
+        .filter((e) => e.target === node.id && !e.isBackEdge)
+        .map((e) => model.nodes[e.source]?.lane)
+        .find(Boolean);
+      const succLane = seq
+        .filter((e) => e.source === node.id && !e.isBackEdge)
+        .map((e) => model.nodes[e.target]?.lane)
+        .find(Boolean);
+      const cand = predLane ?? succLane;
+      if (cand && cand !== node.lane) {
+        moveToLane(model, node.id, cand);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+}
+
+function removeEmptyLanes(model: BpmnModel): void {
+  for (const proc of Object.values(model.processes)) {
+    proc.lanes = proc.lanes.filter((lid) => {
+      const lane = model.lanes[lid];
+      if (lane && lane.flowNodeRefs.length === 0) {
+        delete model.lanes[lid];
+        return false;
+      }
+      return true;
+    });
+  }
 }
 
 interface BuildCtx {
