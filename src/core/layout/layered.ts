@@ -34,9 +34,9 @@ export interface LayoutOptions {
 }
 
 export const DEFAULT_LAYOUT: LayoutOptions = {
-  rankSep: 80,
-  nodeSep: 50,
-  sweeps: 6,
+  rankSep: 110, // wider columns leave clean vertical routing corridors
+  nodeSep: 55,
+  sweeps: 8,
   marginX: 60,
   marginY: 60,
 };

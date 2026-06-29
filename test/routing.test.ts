@@ -135,7 +135,9 @@ describe("orthogonal router", () => {
     autoLayout(m, "P");
     const backs = Object.values(m.edges).filter((e) => e.isBackEdge);
     expect(backs.length).toBe(2);
-    const channelYs = backs.map((b) => Math.max(...b.waypoints!.map((p) => p.y)));
-    expect(channelYs[0]).not.toBe(channelYs[1]);
+    // the two loops must not run on top of each other
+    expect(collinearOverlap(backs[0].waypoints!, backs[1].waypoints!)).toBeLessThan(60);
+    // and both stay orthogonal
+    for (const b of backs) expect(isOrthogonal(b.waypoints!)).toBe(true);
   });
 });

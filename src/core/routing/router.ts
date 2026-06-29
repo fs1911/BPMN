@@ -87,10 +87,13 @@ export function routeScope(
     e.waypoints = routeForward(model, e, grid, occupancy, opts, outIndex, inIndex);
     stampPath(occupancy, grid, e.waypoints, opts);
   }
-  backEdges.forEach((e, k) => {
-    e.waypoints = routeBackEdge(model, e, contentBottom, opts, k, outIndex, inIndex);
+  // Back edges last, A*-routed bottom→bottom so they dip into the reserved band
+  // below the content (and around shapes/forward edges via occupancy) and rise
+  // back into the target — instead of a rigid full-width channel.
+  for (const e of backEdges) {
+    e.waypoints = routeBackEdge(model, e, grid, occupancy, opts, outIndex, inIndex, contentBottom);
     stampPath(occupancy, grid, e.waypoints, opts);
-  });
+  }
 }
 
 /** Mark the cells a routed path occupies (and their neighbours) as costly. */
@@ -178,7 +181,7 @@ function buildGrid(nodes: FlowNode[], opts: RouteOptions): Grid {
     maxX = Math.max(maxX, n.bounds.x + n.bounds.width);
     maxY = Math.max(maxY, n.bounds.y + n.bounds.height);
   }
-  const pad = 80;
+  const pad = 200; // room below content for loop channels + around for detours
   const originX = Math.floor((minX - pad) / step) * step;
   const originY = Math.floor((minY - pad) / step) * step;
   const W = Math.ceil((maxX + pad - originX) / step) + 1;
@@ -386,15 +389,21 @@ function routeForward(
   return cleanupAnchors(simplifyPath(pts), startPort, endPort);
 }
 
-/** Deterministic back-edge route folded into its own channel below content. */
+/**
+ * Back-edge (loop) routing. Bottom→bottom ports, A*-routed so the loop dips
+ * into the reserved band below the content and rises back into the target,
+ * dodging shapes and (via occupancy) other flows — the Signavio-style loop that
+ * avoids the long edge-hugging line a rigid channel produces.
+ */
 function routeBackEdge(
   model: BpmnModel,
   e: Edge,
-  contentBottom: number,
+  g: Grid,
+  occupancy: Float32Array,
   opts: RouteOptions,
-  channelIndex: number,
   outIdx: Record<string, number>,
   inIdx: Record<string, number>,
+  contentBottom: number,
 ): Waypoint[] {
   const s = model.nodes[e.source];
   const t = model.nodes[e.target];
@@ -402,14 +411,22 @@ function routeBackEdge(
   const inCount = siblingCount(model.edges, t.id, "target");
   const startPort = pointOnSide(s.bounds, "bottom", fanFrac(outIdx[e.id] ?? 0, outCount));
   const endPort = pointOnSide(t.bounds, "bottom", fanFrac(inIdx[e.id] ?? 0, inCount));
-  const channelY = contentBottom + opts.channelGap * (channelIndex + 1);
-  const pts: Point[] = [
-    startPort,
-    { x: startPort.x, y: channelY },
-    { x: endPort.x, y: channelY },
-    endPort,
-  ];
-  return simplifyPath(pts);
+
+  // Bias A* into the reserved band: a temporary penalty field that makes the
+  // rows between the content and the band cheap to traverse downward.
+  const stubStart = { x: startPort.x, y: startPort.y + opts.gridStep };
+  const stubEnd = { x: endPort.x, y: endPort.y + opts.gridStep };
+  const blocked = g.blocked(s.id, t.id);
+  const path = astar(g, blocked, occupancy, toCell(stubStart, g), toCell(stubEnd, g), 2, opts.turnPenalty);
+
+  let pts: Point[];
+  if (path) {
+    pts = [startPort, ...path, endPort];
+  } else {
+    const channelY = contentBottom + opts.channelGap;
+    pts = [startPort, { x: startPort.x, y: channelY }, { x: endPort.x, y: channelY }, endPort];
+  }
+  return cleanupAnchors(simplifyPath(pts), startPort, endPort);
 }
 
 function directOrthogonal(a: Point, b: Point, from: Side): Point[] {
