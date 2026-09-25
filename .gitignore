@@ -5,3 +5,4 @@ dist
 scripts/*.png
 .vite
 coverage
+*.tsbuildinfo
