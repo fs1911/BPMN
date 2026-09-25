@@ -22,33 +22,62 @@ bpmn-js' undo stack (AI results are guarded by the accept/reject preview; the
 cleanup actions are not) and drops anything the engine's XML model does not
 carry (e.g. vendor extension attributes).
 
-## Layout (`src/core/layout/layered.ts`)
+## Layout + routing (`src/core/layout`, `src/core/routing`)
 
-1. Build the sequence-flow adjacency for the scope.
-2. **Detect back edges** with an iterative DFS (`detectBackEdges`). Back edges
-   close cycles and are flagged on the model (`edge.isBackEdge`).
-3. **Rank** nodes by longest path over forward edges only (back edges removed),
-   so loop targets never get dragged into a later column.
-4. **Reduce crossings** with weighted-median down/up sweeps.
-5. **Assign Y** by barycenter of neighbours, then hard-resolve overlaps per rank.
-6. **Lane variant:** keep the global rank for X, size each lane to its busiest
-   column, and place nodes within their lane band (clamped, overlap-resolved).
-7. Place boundary events on their host's bottom border.
+Auto-layout (`autoLayout`) routes forward flows *inside* the layered layout —
+the approach professional BPMN tools use — and only loops with A*:
 
-## Routing (`src/core/routing/router.ts`)
+1. **Ranks** by longest path over forward edges (back edges found by DFS and
+   removed), so a loop never drags its target into a later column.
+2. **Dummy nodes** for every rank a long edge skips: the edge reserves a slot in
+   each column it passes, so it cannot run through shapes, and it takes part in
+   crossing reduction.
+3. **Crossing reduction**: weighted-median sweeps + transpose, constrained so
+   nodes stay in their lane; run from several start orders (multi-start), best
+   kept.
+4. **Y assignment** inside lane bands (median pulls, overlap resolution, chain
+   straightening → straight main flow, straight long edges). Lanes get extra
+   height for loop channels.
+5. **Ports**: activities use left/right sides (fanned when shared); gateways
+   and events their real corners — a split sends its outer branches out of the
+   top/bottom corner, a join takes them in the same way (only if that column
+   is free).
+6. **Corridor tracks**: every vertical segment between two columns gets its own
+   track; tracks are ordered to minimise crossings, and corridors widen to fit
+   their tracks and branch labels.
+7. **Two variants** for lanes (long cross-lane flows run in the source lane vs.
+   the target lane) are computed; the better-measured one wins.
 
-- **Forward edges:** uniform grid, **direction-aware A\*** (state = cell × incoming
-  direction) with a turn penalty so routes are orthogonal, dodge inflated node
-  obstacles, and minimise bends. Ports are fanned along node sides so gateway
-  splits/joins leave/enter at distinct points. A perpendicular stub guarantees
-  clean exits. Collinear points are simplified to minimal waypoints.
-- **Back edges:** bypass A\* entirely. Each back edge is folded into its own
-  horizontal **channel below the content** (`contentBottom + gap·(k+1)`), source
-  bottom → channel → target bottom. This keeps the forward reading direction
-  intact, prevents loop lines from cutting through the main path, and
-  guarantees multiple loops never stack on the same line.
-- **Message flows:** simple top/bottom side-to-side orthogonal routes between
-  pools.
+**A\* router** (`router.ts`) — for loops after auto-layout and for all flows in
+*Kanten aufräumen* (manual layouts): direction-aware A\* with turn penalty;
+horizontal and vertical occupancy tracked separately (running along another
+flow = prohibitive, crossing it = penalty); candidate ports (gateway corners,
+side points) chosen by the search; confined to the pool; off-grid ports snapped;
+a rip-up-and-reroute pass for edges that still cross.
+
+**Labels** (`labels.ts`): node labels and branch conditions placed next to the
+gateway exit, avoiding shapes, flows, lane name strips and other labels.
+
+**Measured quality** (`metrics.ts`): crossings, overlaps, bundles (flows sharing
+one gateway corner — standard notation, counted separately), shape hits, flows
+outside the pool, node overlaps, label collisions, bends, length.
+`npm run bench:layout` prints them for the corpus in `test/fixtures`;
+`test/layout-quality.test.ts` gates them.
+
+## Process description + PDF (`src/core/describe`, `src/ui/export/pdf.ts`)
+
+`describeProcess(model)` derives a Q.wiki/Signavio-style description from the
+diagram: header fields (placeholders for what a diagram cannot know: purpose,
+scope, owner), summary and main path, triggers/outcomes, roles with their
+steps, a numbered step table (reading order; short end branches right after
+their decision; joins after all branches; loops marked) and open points
+(validation issues, missing documentation, AI clarification questions). It is
+deterministic — nothing is invented. Element documentation (properties panel →
+*Dokumentation*) flows into the step table.
+
+`buildProcessPdf` renders the diagram as vector graphics (bpmn-js SVG →
+svg2pdf, A4/A3 landscape by size) plus the description as tables (jsPDF +
+autotable), with a running footer. The PDF libraries are loaded on demand.
 
 ## AI pipeline (`src/core/ai`)
 

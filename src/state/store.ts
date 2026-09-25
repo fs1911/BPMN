@@ -2,13 +2,16 @@ import { create } from "zustand";
 import type Modeler from "bpmn-js/lib/Modeler";
 import { BpmnModel, ValidationIssue, validate } from "@core/index";
 import { ai } from "@core/index";
+import { ProcessDescription, describeProcess, descriptionToMarkdown } from "@core/describe";
 import {
   cleanupDiagram,
   cleanupFlows,
+  fitViewport,
   getModelFromModeler,
   getXml,
   loadModelIntoModeler,
 } from "@ui/bpmn/bridge";
+import { buildProcessPdf, downloadBlob, fileBase } from "@ui/export/pdf";
 
 export type Theme = "light" | "dark";
 
@@ -48,6 +51,12 @@ interface EditorState {
   cleanupAll: () => Promise<void>;
   cleanupFlowsOnly: () => Promise<void>;
 
+  /** process description derived from the current diagram. */
+  description?: ProcessDescription;
+  refreshDescription: () => Promise<void>;
+  exportPdf: () => Promise<void>;
+  exportMarkdown: () => Promise<void>;
+
   exportXml: () => Promise<void>;
   importXml: (xml: string) => Promise<void>;
 
@@ -73,7 +82,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!m) return;
     try {
       const model = await getModelFromModeler(m);
-      set({ issues: validate(model) });
+      set({ issues: validate(model), description: describeProcess(model, { extraOpenPoints: clarifications(get().aiReview) }) });
     } catch {
       /* mid-edit invalid XML; ignore */
     }
@@ -89,7 +98,10 @@ export const useEditor = create<EditorState>((set, get) => ({
     const c = get().modeler?.get<any>("canvas");
     if (c) c.zoom(c.zoom() / 1.2);
   },
-  fit: () => get().modeler?.get<any>("canvas").zoom("fit-viewport", "auto"),
+  fit: () => {
+    const m = get().modeler;
+    if (m) fitViewport(m);
+  },
 
   cleanupAll: async () => {
     const m = get().modeler;
@@ -114,6 +126,36 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
+  refreshDescription: async () => {
+    const m = get().modeler;
+    if (!m) return;
+    const model = await getModelFromModeler(m);
+    set({ description: describeProcess(model, { extraOpenPoints: clarifications(get().aiReview) }) });
+  },
+
+  exportPdf: async () => {
+    const m = get().modeler;
+    if (!m) return;
+    set({ busy: true });
+    try {
+      await get().refreshDescription();
+      const d = get().description!;
+      const { svg } = await m.saveSVG();
+      downloadBlob(await buildProcessPdf(svg, d), `${fileBase(d.title)}.pdf`);
+    } catch (err) {
+      alert(`PDF-Export fehlgeschlagen: ${(err as Error).message}`);
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  exportMarkdown: async () => {
+    await get().refreshDescription();
+    const d = get().description;
+    if (!d) return;
+    downloadBlob(new Blob([descriptionToMarkdown(d)], { type: "text/markdown" }), `${fileBase(d.title)}.md`);
+  },
+
   exportXml: async () => {
     const m = get().modeler;
     if (!m) return;
@@ -130,7 +172,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const m = get().modeler;
     if (!m) return;
     await m.importXML(xml);
-    m.get<any>("canvas").zoom("fit-viewport", "auto");
+    fitViewport(m);
     await get().revalidate();
   },
 
@@ -144,7 +186,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const m = s.modeler;
     if (!m || !s.pending) return;
     await m.importXML(s.pending.prevXml);
-    m.get<any>("canvas").zoom("fit-viewport", "auto");
+    fitViewport(m);
     await get().revalidate();
     set({ pending: undefined, aiMessages: [...get().aiMessages, { role: "assistant", text: "↩ Vorschlag verworfen, vorheriges Diagramm wiederhergestellt." }] });
   },
@@ -225,3 +267,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 }));
+
+/** Open AI questions become open points of the process description. */
+function clarifications(review?: ai.ReviewReport): string[] {
+  return (review?.ambiguities ?? []).map((a) => `Klären: ${a.question}${a.options?.length ? ` (${a.options.join(" / ")})` : ""}`);
+}

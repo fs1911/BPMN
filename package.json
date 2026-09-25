@@ -13,7 +13,8 @@
     "typecheck": "tsc -b --noEmit",
     "smoke": "node scripts/smoke.mjs",
     "smoke:llm": "node scripts/smoke-llm.mjs",
-    "bench:layout": "vite-node scripts/bench-layout.ts"
+    "bench:layout": "vite-node scripts/bench-layout.ts",
+    "smoke:pdf": "node scripts/smoke-pdf.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
@@ -21,8 +22,11 @@
     "bpmn-js": "^17.11.1",
     "bpmn-js-properties-panel": "^5.60.0",
     "fast-xml-parser": "^4.5.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "svg2pdf.js": "^2.8.1",
     "zustand": "^4.5.5"
   },
   "devDependencies": {

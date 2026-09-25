@@ -6,7 +6,7 @@ import {
 } from "bpmn-js-properties-panel";
 import { useEditor } from "@state/store";
 import { translateModule } from "@ui/bpmn/translate-de";
-import { initialXml } from "@ui/bpmn/bridge";
+import { fitViewport, initialXml } from "@ui/bpmn/bridge";
 
 /**
  * The editing surface is bpmn-js (the bpmn.io toolkit): professional rendering,
@@ -38,7 +38,7 @@ export function Canvas() {
       .importXML(initialXml())
       .then(() => {
         if (disposed) return;
-        (modeler.get("canvas") as any).zoom("fit-viewport", "auto");
+        fitViewport(modeler);
         setReady(true);
         void useEditor.getState().revalidate();
       })

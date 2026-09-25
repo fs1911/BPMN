@@ -1,0 +1,36 @@
+import { ProcessDescription, StepLink } from "./describe";
+
+/** Plain-text/Markdown rendering of a process description. */
+export function descriptionToMarkdown(d: ProcessDescription): string {
+  const out: string[] = [];
+  const cell = (s: string) => s.replace(/\|/g, "\\|").replace(/\n+/g, " ");
+  out.push(`# Prozessbeschreibung: ${d.title}`, "", `Stand: ${d.date} · automatisch aus dem BPMN-Modell erzeugt`, "");
+  for (const h of d.header) out.push(`- **${h.label}:** ${h.value}`);
+  out.push("", "## Ablauf in Kürze", "", d.summary, "");
+  if (d.mainPath.length) out.push(`**Hauptablauf:** ${d.mainPath.join(" → ")}`, "");
+  out.push("## Auslöser und Ergebnisse", "");
+  out.push(`- **Auslöser:** ${d.triggers.join("; ") || "—"}`, `- **Ergebnisse:** ${d.outcomes.join("; ") || "—"}`, "");
+  if (d.roles.length) {
+    out.push("## Rollen und Aufgaben", "", "| Rolle | Aufgaben |", "|---|---|");
+    for (const r of d.roles) out.push(`| ${cell(r.name)} | ${cell(r.steps.map((s) => `${s.no}. ${s.name}`).join(", ") || "—")} |`);
+    out.push("");
+  }
+  out.push("## Ablauf im Detail", "", "| Nr. | Schritt | Art | Verantwortlich | Beschreibung | Weiter |", "|---|---|---|---|---|---|");
+  for (const s of d.steps) {
+    const desc = [s.description, s.documentation].filter(Boolean).join(" ") || "—";
+    out.push(`| ${s.no} | ${cell(s.name)} | ${s.typeLabel} | ${cell(s.role)} | ${cell(desc)} | ${cell(formatNext(s.next))} |`);
+  }
+  out.push("");
+  if (d.openPoints.length) {
+    out.push("## Offene Punkte", "");
+    for (const p of d.openPoints) out.push(`- ${p}`);
+    out.push("");
+  }
+  return out.join("\n");
+}
+
+/** "ja → 5; nein → 7 (zurück)" */
+export function formatNext(next: StepLink[]): string {
+  if (!next.length) return "—";
+  return next.map((l) => `${l.label ? `${l.label} → ` : "→ "}${l.no}${l.loop ? " (zurück)" : ""}`).join("; ");
+}

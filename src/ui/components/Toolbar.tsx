@@ -39,6 +39,7 @@ export function Toolbar() {
       <div className="tb-group">
         <button onClick={() => fileRef.current?.click()}>Importieren</button>
         <button onClick={() => store.getState().exportXml()}>BPMN exportieren</button>
+        <button disabled={busy} onClick={() => store.getState().exportPdf()} title="Diagramm und Prozessbeschreibung als PDF">PDF exportieren</button>
         <input ref={fileRef} type="file" accept=".bpmn,.xml" hidden onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
       </div>
       <div className="tb-spacer" />

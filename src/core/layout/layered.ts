@@ -73,7 +73,7 @@ const LANE_PAD = 26;
 const LOOP_CHANNEL = 30;
 const TRACK_GAP = 16;
 const POOL_GUTTER = 30;
-const LANE_INSET = 40; // horizontal room between lane border and first/last column
+const LANE_INSET = 56; // horizontal room between lane border and first/last column
 const NO_LANE = "__nolane__";
 
 interface Item {

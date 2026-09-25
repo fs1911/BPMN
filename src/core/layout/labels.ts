@@ -55,7 +55,12 @@ function edgeSegmentBoxes(model: BpmnModel): { edge: string; box: Bounds }[] {
 
 export function placeLabels(model: BpmnModel, scope: string): void {
   const nodes = Object.values(model.nodes).filter((n) => n.parent === scope);
-  const shapeObstacles: Bounds[] = nodes.map((n) => n.bounds);
+  // Shapes plus the name strips of pool and lanes (bpmn-js draws their labels there).
+  const headerStrips: Bounds[] = [
+    ...Object.values(model.participants).map((p) => ({ x: p.bounds.x, y: p.bounds.y, width: 30, height: p.bounds.height })),
+    ...Object.values(model.lanes).map((l) => ({ x: l.bounds.x, y: l.bounds.y, width: 30, height: l.bounds.height })),
+  ];
+  const shapeObstacles: Bounds[] = [...nodes.map((n) => n.bounds), ...headerStrips];
   const segs = edgeSegmentBoxes(model);
   const placed: Bounds[] = [];
   const obstacles = (exceptEdge?: string) => [

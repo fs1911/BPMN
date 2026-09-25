@@ -6,3 +6,4 @@ scripts/*.png
 .vite
 coverage
 *.tsbuildinfo
+scripts/*.pdf

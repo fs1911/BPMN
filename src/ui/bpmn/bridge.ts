@@ -32,9 +32,27 @@ export async function getXml(modeler: Modeler): Promise<string> {
   return xml!;
 }
 
+/**
+ * Fit the diagram into the canvas, leaving room on the left for the palette
+ * (bpmn-js' own "fit-viewport" ignores it and hides the diagram's left edge).
+ */
 export function fitViewport(modeler: Modeler): void {
   try {
-    (modeler.get("canvas") as any).zoom("fit-viewport", "auto");
+    const canvas = modeler.get("canvas") as any;
+    canvas.zoom("fit-viewport", "auto");
+    const vb = canvas.viewbox();
+    const { width: W, height: H } = vb.outer;
+    const inner = vb.inner;
+    if (!inner.width || !inner.height || !W || !H) return;
+    const PAD_LEFT = 90;
+    const PAD = 24;
+    const scale = Math.min((W - PAD_LEFT - PAD) / inner.width, (H - 2 * PAD) / inner.height, 1);
+    canvas.viewbox({
+      x: inner.x - PAD_LEFT / scale,
+      y: inner.y - (H / scale - inner.height) / 2,
+      width: W / scale,
+      height: H / scale,
+    });
   } catch {
     /* canvas not ready */
   }

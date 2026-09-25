@@ -6,3 +6,4 @@ export * from "./validation";
 export * from "./commands";
 export * as ai from "./ai";
 export { exportBpmn, importBpmn } from "./xml";
+export * from "./describe";

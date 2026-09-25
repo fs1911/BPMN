@@ -175,3 +175,28 @@ html[data-theme="dark"] .djs-palette .entry { color: #e6ebf2 !important; }
 /* Keep the bpmn.io properties panel readable (light) in both themes */
 .bjs-properties { background: #fbfcfd; }
 html[data-theme="dark"] .bjs-properties { color: #1c2530; background: #fff; }
+
+/* Process description */
+.description { font-size: 12px; line-height: 1.45; }
+.description h3 { margin: 10px 0 6px; font-size: 15px; }
+.description h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; color: var(--muted); }
+.description .small { font-size: 11px; }
+.desc-actions { gap: 6px; }
+.desc-header { margin: 0; display: grid; gap: 3px; }
+.desc-header div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 6px; }
+.desc-header dt { font-weight: 600; }
+.desc-header dd { margin: 0; }
+.desc-roles, .desc-open { margin: 0; padding-left: 16px; }
+.desc-open { color: var(--warn); }
+.desc-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.desc-steps li { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; background: var(--surface); }
+.desc-steps li[class*="k-decision"], .desc-steps li[class*="-split"], .desc-steps li[class*="-join"], .desc-steps li.k-merge { background: var(--surface-2); }
+.step-head { display: flex; gap: 6px; align-items: baseline; }
+.step-head .no { font-weight: 700; min-width: 18px; }
+.step-head .name { font-weight: 600; flex: 1; }
+.step-head .type, .step-meta { color: var(--muted); font-size: 11px; }
+.step-meta { display: flex; gap: 10px; margin-top: 2px; }
+.step-desc { margin-top: 3px; }
+.step-doc { margin-top: 3px; padding-left: 6px; border-left: 2px solid var(--accent-soft); }
+.tabs { gap: 4px; }
+.tabs button { white-space: nowrap; padding-left: 4px; padding-right: 4px; font-size: 12px; min-width: 0; }

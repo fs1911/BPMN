@@ -34,7 +34,8 @@ this README stay in English.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 53 engine tests (vitest, headless)
+npm test           # 65 engine tests (vitest, headless)
+npm run bench:layout  # layout quality metrics on the benchmark corpus
 npm run build      # type-check + production bundle
 npm run typecheck  # strict tsc, no emit
 ```
@@ -159,12 +160,17 @@ docs/                   # architecture notes + screenshots
 
 ## 4–5. Implementation & tests
 
-See `src/` and `test/`. Run `npm test` — 53 tests cover BPMN import/export,
+See `src/` and `test/`. Run `npm test` — 65 tests cover BPMN import/export,
 routing around obstacles, gateway branch fanning, back-edge channels, lane
 placement, layout determinism, undo/redo, validation rules, bilingual
 text-to-BPMN extraction (EN + DE), and instruction-based updates (approval, lane
 split, exception path, node replacement, re-layout), Graph-IR mapping and
 repair, the quality assessment, and the streaming LLM client protocol.
+
+`test/layout-quality.test.ts` gates the layout on a corpus of realistic
+processes: 0 crossings, 0 overlapping flows, 0 flows through shapes or outside
+the pool. `scripts/smoke-pdf.mjs` generates a diagram in the browser, opens the
+process description and exports the PDF.
 
 `scripts/smoke-llm.mjs` drives the LLM path in the real app with
 `/api/generate` mocked (no API key needed).
@@ -187,6 +193,10 @@ lanes, loop & multi-instance markers, default flows, conditions.
 quick-connect handle, marquee + multi-select, inline rename, properties editing,
 delete, undo/redo, keyboard shortcuts (Ctrl+Z/Y, Del, Ctrl+A, Esc, +/-, L),
 snap-to-grid, zoom-to-cursor, pan, light/dark.
+
+**Documentation:** automatic process description (tab *Beschreibung*: summary,
+roles, numbered step table, open points; updates live) and **PDF export**
+(diagram as vector graphics + description), Markdown export.
 
 **Quality tools:** *Clean up diagram* (re-layout + re-route), *Clean up flows*
 (re-route only), live validation panel with click-to-locate, readability hints.

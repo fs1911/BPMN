@@ -21,9 +21,9 @@ Ordered by impact on real modeling work.
 7. **Lane-crossing minimisation** — order lanes to reduce flows that hop lanes;
    bundle parallel same-direction flows.
 8. ~~**Label placement solver**~~ — done (`src/core/layout/labels.ts`).
-8b. **Keep routes inside the pool** — some flows between lanes currently run
-   along or below the pool border (visible on LLM-generated diagrams with
-   parallel branches).
+8b. ~~**Keep routes inside the pool / crossing-free routing**~~ — done
+   (layout-integrated routing, see docs/ARCHITECTURE.md). Next: incremental
+   layout that keeps the user's manual arrangement (item 9).
 9. **Mental-map preservation** — incremental layout that minimises movement of
    unchanged elements after an edit (currently a full deterministic re-layout).
 
@@ -39,6 +39,12 @@ Ordered by impact on real modeling work.
 13. **More instruction verbs** — merge/duplicate branches, convert task↔sub-
     process, extract selection into a sub-process, add compensation/boundary
     timers.
+
+## Documentation
+- ~~Process description + PDF export~~ — done. Next: **KI-Ausformulierung** of
+  step descriptions (fill the *Dokumentation* fields from the source text,
+  as a reviewable suggestion), editable header fields (purpose, scope, owner)
+  stored in the BPMN file, Word export.
 
 ## Product
 14. **Collaboration / persistence** — autosave, file open/save, shareable links.

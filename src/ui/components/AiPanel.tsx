@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DescriptionPanel } from "./DescriptionPanel";
 import { useEditor } from "@state/store";
 
 const SAMPLE = `Wenn eine Bestellanforderung eingeht, erfasst der Sachbearbeiter sie im System.
@@ -14,7 +15,7 @@ export function AiPanel() {
   const review = useEditor((s) => s.aiReview);
   const busy = useEditor((s) => s.aiBusy);
   const progress = useEditor((s) => s.aiProgress);
-  const [tab, setTab] = useState<"generate" | "review">("generate");
+  const [tab, setTab] = useState<"generate" | "review" | "describe">("generate");
   const [text, setText] = useState(SAMPLE);
   const [instruction, setInstruction] = useState("");
 
@@ -23,6 +24,7 @@ export function AiPanel() {
       <div className="tabs">
         <button className={tab === "generate" ? "on" : ""} onClick={() => setTab("generate")}>KI-Modellierung</button>
         <button className={tab === "review" ? "on" : ""} onClick={() => setTab("review")}>Überprüfung</button>
+        <button className={tab === "describe" ? "on" : ""} onClick={() => setTab("describe")}>Beschreibung</button>
       </div>
 
       {tab === "generate" && (
@@ -60,6 +62,8 @@ export function AiPanel() {
           </div>
         </div>
       )}
+
+      {tab === "describe" && <DescriptionPanel />}
 
       {tab === "review" && (
         <div className="ai-review">
