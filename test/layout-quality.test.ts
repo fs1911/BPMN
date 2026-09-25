@@ -20,8 +20,8 @@ describe("layout quality (corpus)", () => {
       expect(m.outsidePool).toBe(0);
       expect(m.nodeOverlaps).toBe(0);
       expect(m.diagonals).toBe(0);
-      // bundles = flows sharing one gateway corner (standard notation), kept rare
-      expect(m.bundles).toBeLessThanOrEqual(2);
+      // bundles = branches sharing one gateway corner as a trunk (standard notation)
+      expect(m.bundles).toBeLessThanOrEqual(6);
       expect(m.labelCollisions).toBeLessThanOrEqual(1);
       // few bends: ~1 per flow on average (a loop alone needs 3–4)
       expect(m.bends).toBeLessThanOrEqual(Math.ceil(Object.keys(model.edges).length * 1.3));

@@ -31,9 +31,9 @@ export function autoLayout(
   const hasLanes = (model.processes[scope]?.lanes.length ?? 0) > 0;
   const policies: Array<"source" | "target"> = opts.layout?.longEdgeLane
     ? [opts.layout.longEdgeLane]
-    : hasLanes
+    : hasLanes && Object.keys(model.nodes).length <= 150
       ? ["source", "target"]
-      : ["source"];
+      : ["source"]; // very large diagrams: one variant keeps the layout responsive
 
   let best: { model: BpmnModel; result: LayoutResult; score: number } | undefined;
   for (const longEdgeLane of policies) {

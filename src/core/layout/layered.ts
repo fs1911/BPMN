@@ -185,7 +185,8 @@ function orderRanksMultiStart(L: Layered, nodeIds: string[], laneIdx: (id: strin
   ];
   let seed = 7;
   const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
-  for (let k = 0; k < 6; k++) {
+  const shuffles = Object.keys(L.items).length > 250 ? 1 : Object.keys(L.items).length > 120 ? 3 : 6;
+  for (let k = 0; k < shuffles; k++) {
     starts.push(
       starts[0].map((rk) => {
         const a = [...rk];
@@ -251,6 +252,7 @@ function orderRanks(L: Layered, laneIdx: (id: string) => number, sweeps: number)
       L.ranks[r].forEach((id, i) => (pos[id] = i));
     }
     transpose(L, laneIdx);
+    sift(L, laneIdx);
     reindex();
     const c = totalCrossings();
     if (c < bestC) {
@@ -282,20 +284,71 @@ function transpose(L: Layered, laneIdx: (id: string) => number): void {
   }
 }
 
-/** Crossings between the edges of two adjacent layers. */
+/**
+ * Sifting: move each item to the position within its lane group (in its rank)
+ * that minimises crossings with the neighbouring ranks.
+ */
+function sift(L: Layered, laneIdx: (id: string) => number): void {
+  for (let pass = 0; pass < 2; pass++) {
+    let improved = false;
+    for (let r = 0; r < L.ranks.length; r++) {
+      const local = () =>
+        (r > 0 ? layerCrossings(L.ranks[r - 1], L.ranks[r], L.adj) : 0) +
+        (r < L.ranks.length - 1 ? layerCrossings(L.ranks[r], L.ranks[r + 1], L.adj) : 0);
+      for (const id of [...L.ranks[r]]) {
+        const rank = L.ranks[r];
+        const lane = laneIdx(id);
+        const from = rank.indexOf(id);
+        rank.splice(from, 1);
+        let best = from;
+        let bestC = Infinity;
+        for (let p = 0; p <= rank.length; p++) {
+          // stay inside the lane group
+          if (p > 0 && laneIdx(rank[p - 1]) > lane) break;
+          if (p < rank.length && laneIdx(rank[p]) < lane) continue;
+          rank.splice(p, 0, id);
+          const c = local();
+          rank.splice(p, 1);
+          if (c < bestC || (c === bestC && p === from)) {
+            bestC = c;
+            best = p;
+          }
+        }
+        rank.splice(best, 0, id);
+        if (best !== from) improved = true;
+      }
+    }
+    if (!improved) break;
+  }
+}
+
+/** Crossings between the edges of two adjacent layers (inversion count, Fenwick tree). */
 function layerCrossings(upper: string[], lower: string[], adj: Adjacency): number {
   const posU: Record<string, number> = {};
   upper.forEach((id, i) => (posU[id] = i));
   const seq: number[] = [];
   for (const v of lower) {
-    const ups = (adj.incoming[v] ?? [])
-      .map((e) => posU[e.source])
-      .filter((p) => p !== undefined)
-      .sort((a, b) => a - b);
-    seq.push(...ups);
+    const ups: number[] = [];
+    for (const e of adj.incoming[v] ?? []) {
+      const p = posU[e.source];
+      if (p !== undefined) ups.push(p);
+    }
+    ups.sort((a, b) => a - b);
+    for (const p of ups) seq.push(p);
   }
+  // count pairs i<j with seq[i] > seq[j]
+  const n = upper.length;
+  const tree = new Int32Array(n + 1);
   let c = 0;
-  for (let i = 0; i < seq.length; i++) for (let j = i + 1; j < seq.length; j++) if (seq[i] > seq[j]) c++;
+  let seen = 0;
+  for (const p of seq) {
+    // number of earlier values <= p
+    let le = 0;
+    for (let i = p + 1; i > 0; i -= i & -i) le += tree[i];
+    c += seen - le;
+    for (let i = p + 1; i <= n; i += i & -i) tree[i]++;
+    seen++;
+  }
   return c;
 }
 
@@ -442,17 +495,23 @@ function planRoutes(model: BpmnModel, L: Layered) {
   const edgeIds = Object.keys(L.chains);
 
   /** Is the node's own column free between its border and y (for corner routes)? */
+  // Vertical stretches of a column already used by corner routes (per rank).
+  const reserved: Record<number, [number, number][]> = {};
+  const span = (nodeId: string, y: number): [number, number] => {
+    const it = items[nodeId];
+    return y < it.y ? [y - 10, it.y - it.h / 2] : [it.y + it.h / 2, y + 10];
+  };
   const columnFree = (nodeId: string, y: number): boolean => {
     const it = items[nodeId];
-    const top = it.y - it.h / 2;
-    const bottom = it.y + it.h / 2;
-    const [a, b] = y < it.y ? [y - 10, top] : [bottom, y + 10];
-    return L.ranks[it.rank].every((id) => {
+    const [a, b] = span(nodeId, y);
+    const itemsFree = L.ranks[it.rank].every((id) => {
       if (id === nodeId) return true;
       const o = items[id];
       return o.y + o.h / 2 + 6 < a || o.y - o.h / 2 - 6 > b;
     });
+    return itemsFree && (reserved[it.rank] ?? []).every(([c, d]) => d + 6 < a || c - 6 > b);
   };
+  const reserve = (nodeId: string, y: number) => (reserved[items[nodeId].rank] ||= []).push(span(nodeId, y));
 
   const fan = (n: number, i: number) => (n <= 1 ? 0.5 : 0.25 + (0.5 * i) / (n - 1));
 
@@ -470,10 +529,22 @@ function planRoutes(model: BpmnModel, L: Layered) {
     }
     for (const e of outs) exits[e] = { side: "right", y: it.y };
     if (outs.length >= 2) {
-      const first = outs[0];
-      const last = outs[outs.length - 1];
-      if (nextY(first) < it.y - it.h / 2 - 10 && columnFree(nid, nextY(first))) exits[first] = { side: "top", y: nextY(first) };
-      if (nextY(last) > it.y + it.h / 2 + 10 && columnFree(nid, nextY(last))) exits[last] = { side: "bottom", y: nextY(last) };
+      // All branches clearly above leave via the top corner, all below via the
+      // bottom corner (a trunk that branches off), the level one via the right
+      // corner. All-or-nothing per direction: if the farthest branch cannot use
+      // the corner, a nearer one using it would force a crossing.
+      const above = outs.filter((e) => nextY(e) < it.y - it.h / 2 - 10);
+      const below = outs.filter((e) => nextY(e) > it.y + it.h / 2 + 10);
+      const top = above.length ? Math.min(...above.map(nextY)) : 0;
+      const bottom = below.length ? Math.max(...below.map(nextY)) : 0;
+      if (above.length && columnFree(nid, top)) {
+        for (const e of above) exits[e] = { side: "top", y: nextY(e) };
+        reserve(nid, top);
+      }
+      if (below.length && columnFree(nid, bottom)) {
+        for (const e of below) exits[e] = { side: "bottom", y: nextY(e) };
+        reserve(nid, bottom);
+      }
     }
   }
 
@@ -495,10 +566,20 @@ function planRoutes(model: BpmnModel, L: Layered) {
     }
     for (const e of ins) entries[e] = { side: "left", y: it.y };
     if (ins.length >= 2) {
-      const first = ins[0];
-      const last = ins[ins.length - 1];
-      if (!cornerExit(first) && prevY(first) < it.y - it.h / 2 - 10 && columnFree(nid, prevY(first))) entries[first] = { side: "top", y: prevY(first) };
-      if (!cornerExit(last) && prevY(last) > it.y + it.h / 2 + 10 && columnFree(nid, prevY(last))) entries[last] = { side: "bottom", y: prevY(last) };
+      const cand = ins.filter((e) => !cornerExit(e));
+      const above = cand.filter((e) => prevY(e) < it.y - it.h / 2 - 10);
+      const below = cand.filter((e) => prevY(e) > it.y + it.h / 2 + 10);
+      // all-or-nothing per direction, as for exits
+      const top = above.length ? Math.min(...above.map(prevY)) : 0;
+      const bottom = below.length ? Math.max(...below.map(prevY)) : 0;
+      if (above.length && above.length === ins.filter((e) => prevY(e) < it.y - it.h / 2 - 10).length && columnFree(nid, top)) {
+        for (const e of above) entries[e] = { side: "top", y: prevY(e) };
+        reserve(nid, top);
+      }
+      if (below.length && below.length === ins.filter((e) => prevY(e) > it.y + it.h / 2 + 10).length && columnFree(nid, bottom)) {
+        for (const e of below) entries[e] = { side: "bottom", y: prevY(e) };
+        reserve(nid, bottom);
+      }
     }
   }
   // A corner exit straight into a node must arrive at that node's entry y.
@@ -548,44 +629,126 @@ function planRoutes(model: BpmnModel, L: Layered) {
   }
 
   for (const segs of corridors) orderTracks(segs);
+
+  // A swap (A: y→y', B: y'→y between neighbouring columns) cannot be separated
+  // by track order alone: one horizontal would lie on the other. Move the
+  // activity port of one of them a few pixels so the two run apart.
+  corridors.forEach((segs, r) => {
+    for (const a of segs) {
+      for (const b of segs) {
+        if (a === b || a.x! > b.x! || Math.abs(a.y2 - b.y1) >= 0.5) continue;
+        if (nudge(a.edge, "entry", a.y2) || nudge(b.edge, "exit", b.y1)) continue;
+      }
+    }
+    void r;
+  });
+  function nudge(e: string, end: "entry" | "exit", y: number): boolean {
+    const chain = L.chains[e];
+    const nodeId = end === "entry" ? chain[chain.length - 1] : chain[0];
+    const port = end === "entry" ? entries[e] : exits[e];
+    if (kindOf(model.nodes[nodeId]) !== "activity" || port.side !== (end === "entry" ? "left" : "right")) return false;
+    const it = items[nodeId];
+    const ports = end === "entry" ? entries : exits;
+    const taken = new Set(
+      Object.keys(ports)
+        .filter((id) => (end === "entry" ? L.chains[id][L.chains[id].length - 1] : L.chains[id][0]) === nodeId)
+        .map((id) => ports[id].y),
+    );
+    for (const d of [10, -10, 18, -18]) {
+      const ny = y + d;
+      if (ny < it.y - it.h / 2 + 8 || ny > it.y + it.h / 2 - 8 || taken.has(ny)) continue;
+      port.y = ny;
+      for (const segs of corridors) for (const s of segs) {
+        if (s.edge !== e) continue;
+        if (end === "entry" && s.y2 === y) s.y2 = ny;
+        if (end === "exit" && s.y1 === y) s.y1 = ny;
+      }
+      const pts = routes[e];
+      if (end === "entry") {
+        for (let i = pts.length - 1; i >= 0 && pts[i].y === y; i--) pts[i].y = ny;
+      } else {
+        for (let i = 0; i < pts.length && pts[i].y === y; i++) pts[i].y = ny;
+      }
+      return true;
+    }
+    return false;
+  }
   return { routes, corridors, exits, entries };
 }
 
 /**
  * Order the vertical segments of one corridor left→right to minimise crossings.
- * Segment A left of B: A's outgoing horizontal (y2) crosses B's vertical if y2
- * lies inside B's span; B's incoming horizontal (y1) crosses A's vertical if y1
- * lies inside A's span.
+ *
+ * For a left of b: a's outgoing horizontal (y2) crosses b's vertical if y2 lies
+ * inside b's span; b's incoming horizontal (y1) crosses a's vertical if y1 lies
+ * inside a's span; and if a.y2 === b.y1 the two horizontals would lie on top of
+ * each other (forbidden). The total is a sum of pairwise costs, so the optimal
+ * order is a linear-ordering problem: solved exactly by dynamic programming
+ * over subsets for up to EXACT_LIMIT segments, by local search beyond.
  */
+const EXACT_LIMIT = 14;
+
 function orderTracks(segs: CorridorSeg[]): void {
-  if (segs.length < 2) {
+  const n = segs.length;
+  if (n < 2) {
     segs.forEach((s) => (s.x = 0));
     return;
   }
   const inside = (y: number, s: CorridorSeg) => y > Math.min(s.y1, s.y2) + 0.5 && y < Math.max(s.y1, s.y2) - 0.5;
-  const cost = (a: CorridorSeg, b: CorridorSeg) => (inside(a.y2, b) ? 1 : 0) + (inside(b.y1, a) ? 1 : 0);
-  const order: CorridorSeg[] = [];
-  for (const s of segs) {
-    let bestI = 0;
-    let bestC = Infinity;
-    for (let i = 0; i <= order.length; i++) {
-      let c = 0;
-      for (let j = 0; j < order.length; j++) c += j < i ? cost(order[j], s) : cost(s, order[j]);
-      if (c < bestC) (bestC = c), (bestI = i);
-    }
-    order.splice(bestI, 0, s);
-  }
-  for (let pass = 0; pass < 4; pass++) {
-    let improved = false;
-    for (let i = 0; i < order.length - 1; i++) {
-      if (cost(order[i + 1], order[i]) < cost(order[i], order[i + 1])) {
-        [order[i], order[i + 1]] = [order[i + 1], order[i]];
-        improved = true;
+  const C: number[][] = segs.map((a) =>
+    segs.map((b) => (a === b ? 0 : (inside(a.y2, b) ? 1 : 0) + (inside(b.y1, a) ? 1 : 0) + (Math.abs(a.y2 - b.y1) < 0.5 ? 1000 : 0))),
+  );
+
+  let order: number[];
+  if (n <= EXACT_LIMIT) {
+    // best[mask] = min cost of the segments in `mask` occupying the leftmost tracks.
+    const size = 1 << n;
+    const best = new Float64Array(size).fill(Infinity);
+    const choice = new Int8Array(size).fill(-1);
+    best[0] = 0;
+    for (let mask = 0; mask < size; mask++) {
+      if (best[mask] === Infinity) continue;
+      for (let s = 0; s < n; s++) {
+        if (mask & (1 << s)) continue;
+        let c = best[mask];
+        for (let j = 0; j < n; j++) if (mask & (1 << j)) c += C[j][s];
+        const next = mask | (1 << s);
+        if (c < best[next]) {
+          best[next] = c;
+          choice[next] = s;
+        }
       }
     }
-    if (!improved) break;
+    order = [];
+    for (let mask = size - 1; mask; mask &= ~(1 << choice[mask])) order.unshift(choice[mask]);
+  } else {
+    // Local search: move each segment to its best position until stable.
+    order = [...segs.keys()].sort((a, b) => segs[a].y1 + segs[a].y2 - segs[b].y1 - segs[b].y2);
+    const total = (o: number[]) => {
+      let c = 0;
+      for (let i = 0; i < o.length; i++) for (let j = i + 1; j < o.length; j++) c += C[o[i]][o[j]];
+      return c;
+    };
+    let cur = total(order);
+    for (let improved = true, guard = 0; improved && guard < 50; guard++) {
+      improved = false;
+      for (let i = 0; i < n; i++) {
+        const item = order[i];
+        const rest = order.filter((_, k) => k !== i);
+        for (let p = 0; p <= rest.length; p++) {
+          const cand = [...rest.slice(0, p), item, ...rest.slice(p)];
+          const c = total(cand);
+          if (c < cur) {
+            cur = c;
+            order = cand;
+            improved = true;
+            break;
+          }
+        }
+      }
+    }
   }
-  order.forEach((s, i) => (s.x = i)); // track index; converted to px later
+  order.forEach((segIdx, i) => (segs[segIdx].x = i)); // track index; converted to px later
 }
 
 // ---------------------------------------------------------------------------
@@ -774,3 +937,36 @@ export function contentBounds(model: BpmnModel, scope: string): { x: number; y: 
   }
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
+
+/**
+ * Internals exposed for verification scripts/tests only (e.g. comparing the
+ * crossing reduction against an exhaustive optimum on small graphs).
+ */
+export const __layeredInternals = {
+  prepare(model: BpmnModel, scope: string) {
+    const adj = buildAdjacency(model, { scope, types: ["sequenceFlow"] });
+    const nodes = Object.keys(adj.outgoing).filter((id) => model.nodes[id] && model.nodes[id].type !== "boundaryEvent");
+    const set = new Set(nodes);
+    const fadj: Adjacency = { outgoing: {}, incoming: {} };
+    for (const id of nodes) {
+      fadj.outgoing[id] = (adj.outgoing[id] ?? []).filter((e) => set.has(e.target));
+      fadj.incoming[id] = (adj.incoming[id] ?? []).filter((e) => set.has(e.source));
+    }
+    const back = detectBackEdges(fadj);
+    const rank = assignRanks(topoOrder(fadj, back), fadj, back);
+    const proc = model.processes[scope];
+    const lanes = proc && proc.lanes.length ? [...proc.lanes] : [NO_LANE];
+    const laneBy: Record<string, string> = {};
+    for (const l of proc?.lanes ?? []) for (const n of model.lanes[l].flowNodeRefs) laneBy[n] = l;
+    const laneOf = (id: string) => laneBy[id] ?? lanes[0];
+    const L = buildLayered(model, nodes, fadj, back, rank, laneOf, "source");
+    const laneIdx = (id: string) => lanes.indexOf(L.items[id].lane);
+    return { L, nodes, laneIdx };
+  },
+  orderRanksMultiStart,
+  total(L: Layered): number {
+    let c = 0;
+    for (let r = 0; r < L.ranks.length - 1; r++) c += layerCrossings(L.ranks[r], L.ranks[r + 1], L.adj);
+    return c;
+  },
+};

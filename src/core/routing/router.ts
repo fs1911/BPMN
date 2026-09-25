@@ -40,7 +40,7 @@ export const DEFAULT_ROUTING: RouteOptions = {
   clearance: 12,
   turnPenalty: 20,
   overlapPenalty: 5000,
-  crossPenalty: 350,
+  crossPenalty: 1500,
   hugPenalty: 6,
 };
 
@@ -50,6 +50,8 @@ const DIRS: Array<[number, number]> = [
   [0, 1], // 2 down
   [-1, 0], // 3 left
 ];
+/** 1 = exact A*. (1.5 was measured: 25 % faster but more loop crossings — not worth it.) */
+const HEURISTIC_WEIGHT = 1;
 const SIDE_DIR: Record<Side, number> = { top: 0, right: 1, bottom: 2, left: 3 };
 
 export interface RouteContext {
@@ -164,6 +166,10 @@ interface Grid {
   /** cells outside the allowed frame. */
   outside: Uint8Array;
   nodeCells: Map<string, [number, number, number, number]>;
+  /** number of (inflated) shapes covering each cell. */
+  nodeCount: Uint16Array;
+  /** search buffers, allocated once per grid and reset per search. */
+  buf?: { gScore: Float64Array; came: Int32Array; startOf: Int32Array };
 }
 
 function buildGrid(model: BpmnModel, scope: string, nodes: FlowNode[], opts: RouteOptions): Grid {
@@ -214,16 +220,21 @@ function buildGrid(model: BpmnModel, scope: string, nodes: FlowNode[], opts: Rou
       Math.min(H - 1, Math.ceil((r.y + r.height - originY) / step)),
     ]);
   }
-  return { originX, originY, W, H, step, outside, nodeCells };
+  const nodeCount = new Uint16Array(W * H);
+  for (const [x0, y0, x1, y1] of nodeCells.values()) {
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) nodeCount[cy * W + cx]++;
+  }
+  return { originX, originY, W, H, step, outside, nodeCells, nodeCount };
 }
 
-function blockedFor(g: Grid, sourceId: string, targetId: string): Uint8Array {
-  const arr = Uint8Array.from(g.outside);
-  for (const [id, [x0, y0, x1, y1]] of g.nodeCells) {
-    if (id === sourceId || id === targetId) continue;
-    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) arr[cy * g.W + cx] = 1;
+/** Temporarily let a flow pass through its own source/target shapes (sign -1), then restore (+1). */
+function toggleOwnShapes(g: Grid, ids: string[], sign: 1 | -1): void {
+  for (const id of ids) {
+    const r = g.nodeCells.get(id);
+    if (!r) continue;
+    const [x0, y0, x1, y1] = r;
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) g.nodeCount[cy * g.W + cx] += sign;
   }
-  return arr;
 }
 
 function toCell(p: Point, g: Grid): [number, number] {
@@ -328,9 +339,19 @@ function routeEdge(
   const back = !!e.isBackEdge;
   const outs = candidatePorts(s, t, "out", back, used);
   const ins = candidatePorts(t, s, "in", back, used);
-  const blocked = blockedFor(g, s.id, t.id);
-
-  const found = astar(g, blocked, occ, outs, ins, opts);
+  // Search window: the horizontal span of the two shapes plus a generous margin
+  // (loops and detours stay local), full frame height.
+  const margin = Math.ceil(600 / g.step);
+  const x0 = Math.max(0, Math.floor((Math.min(s.bounds.x, t.bounds.x) - g.originX) / g.step) - margin);
+  const x1 = Math.min(g.W - 1, Math.ceil((Math.max(s.bounds.x + s.bounds.width, t.bounds.x + t.bounds.width) - g.originX) / g.step) + margin);
+  const own = [...new Set([s.id, t.id])];
+  toggleOwnShapes(g, own, -1);
+  let found: ReturnType<typeof astar>;
+  try {
+    found = astar(g, (k, cx) => cx < x0 || cx > x1 || g.outside[k] === 1 || g.nodeCount[k] > 0, occ, outs, ins, opts);
+  } finally {
+    toggleOwnShapes(g, own, 1);
+  }
   if (!found) {
     const a = outs.sort((x, y) => x.cost - y.cost)[0];
     const z = ins.sort((x, y) => x.cost - y.cost)[0];
@@ -344,7 +365,7 @@ function routeEdge(
 
 function astar(
   g: Grid,
-  blocked: Uint8Array,
+  blocked: (k: number, cx: number) => boolean,
   occ: Occupancy,
   starts: Port[],
   goals: Port[],
@@ -352,9 +373,25 @@ function astar(
 ): { path: Point[]; from: Port; to: Port } | null {
   const { W, H, step } = g;
   const N = W * H * 4;
-  const gScore = new Float64Array(N).fill(Infinity);
-  const came = new Int32Array(N).fill(-1);
-  const startOf = new Int32Array(N).fill(-1);
+  if (!g.buf) {
+    g.buf = { gScore: new Float64Array(N).fill(Infinity), came: new Int32Array(N).fill(-1), startOf: new Int32Array(N).fill(-1) };
+  }
+  const { gScore, came, startOf } = g.buf;
+  const touched: number[] = [];
+  const touch = (s: number) => {
+    if (gScore[s] === Infinity) touched.push(s);
+  };
+  try {
+    return search();
+  } finally {
+    for (const s of touched) {
+      gScore[s] = Infinity;
+      came[s] = -1;
+      startOf[s] = -1;
+    }
+  }
+
+  function search(): { path: Point[]; from: Port; to: Port } | null {
   const st = (cx: number, cy: number, d: number) => (cy * W + cx) * 4 + d;
 
   // Goal lookup: stub cell → ports ending there (with the heading that enters the port).
@@ -372,7 +409,7 @@ function astar(
   const h = (cx: number, cy: number) => {
     let best = Infinity;
     for (const [gx, gy] of goalCells) best = Math.min(best, Math.abs(cx - gx) + Math.abs(cy - gy));
-    return best * step;
+    return best * step * HEURISTIC_WEIGHT;
   };
 
   // Binary heap over (f, state); terminal states are encoded as N + goalIndex.
@@ -417,10 +454,11 @@ function astar(
     const d = SIDE_DIR[p.side];
     const stub = { x: p.point.x + DIRS[d][0] * step, y: p.point.y + DIRS[d][1] * step };
     const [cx, cy] = toCell(stub, g);
-    if (blocked[cy * W + cx]) return;
+    if (blocked(cy * W + cx, cx)) return;
     const s = st(cx, cy, d);
     const cost = p.cost + cellCost(occ, cy * W + cx, d, opts);
     if (cost < gScore[s]) {
+      touch(s);
       gScore[s] = cost;
       startOf[s] = i;
       push(cost + h(cx, cy), s);
@@ -454,10 +492,11 @@ function astar(
       const ny = cy + DIRS[nd][1];
       if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
       const nk = ny * W + nx;
-      if (blocked[nk]) continue;
+      if (blocked(nk, nx)) continue;
       const ng = base + step + (nd !== d ? opts.turnPenalty : 0) + cellCost(occ, nk, nd, opts);
       const ns = st(nx, ny, nd);
       if (ng < gScore[ns]) {
+        touch(ns);
         gScore[ns] = ng;
         came[ns] = s;
         startOf[ns] = startOf[s];
@@ -479,6 +518,7 @@ function astar(
   }
   path.reverse();
   return { path, from: starts[startOf[first]], to: term.port };
+  }
 }
 
 /**

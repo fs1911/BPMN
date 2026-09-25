@@ -76,21 +76,30 @@ export function placeLabels(model: BpmnModel, scope: string): void {
       continue;
     }
     const { w, h } = labelSize(n.name);
-    const cx = n.bounds.x + n.bounds.width / 2;
-    const candidates: Bounds[] = [
-      { x: cx - w / 2, y: n.bounds.y + n.bounds.height + 4, width: w, height: h }, // below
-      { x: cx - w / 2, y: n.bounds.y - h - 4, width: w, height: h }, // above
-      { x: n.bounds.x + n.bounds.width + 6, y: n.bounds.y + n.bounds.height / 2 - h / 2, width: w, height: h }, // right
-      { x: n.bounds.x - w - 6, y: n.bounds.y + n.bounds.height / 2 - h / 2, width: w, height: h }, // left
-      { x: n.bounds.x + n.bounds.width + 4, y: n.bounds.y + n.bounds.height + 2, width: w, height: h }, // below right
-      { x: n.bounds.x - w - 4, y: n.bounds.y + n.bounds.height + 2, width: w, height: h }, // below left
-      { x: n.bounds.x + n.bounds.width + 4, y: n.bounds.y - h - 2, width: w, height: h }, // above right
-      { x: n.bounds.x - w - 4, y: n.bounds.y - h - 2, width: w, height: h }, // above left
-    ];
-    for (let k = 1; k <= 4; k++) {
-      candidates.push({ x: cx - w / 2, y: n.bounds.y + n.bounds.height + 4 + k * 16, width: w, height: h });
+    const b = n.bounds;
+    const cx = b.x + b.width / 2;
+    const cy = b.y + b.height / 2;
+    const candidates: Bounds[] = [];
+    for (const d of [4, 16, 30]) {
+      candidates.push(
+        { x: cx - w / 2, y: b.y + b.height + d, width: w, height: h }, // below
+        { x: cx - w / 2, y: b.y - h - d, width: w, height: h }, // above
+        { x: b.x + b.width + d + 2, y: cy - h / 2, width: w, height: h }, // right
+        { x: b.x - w - d - 2, y: cy - h / 2, width: w, height: h }, // left
+        // beside a vertical trunk leaving the top/bottom corner
+        { x: cx + 5, y: b.y + b.height + d - 2, width: w, height: h }, // below, right of trunk
+        { x: cx - w - 5, y: b.y + b.height + d - 2, width: w, height: h }, // below, left of trunk
+        { x: cx + 5, y: b.y - h - d + 2, width: w, height: h }, // above, right of trunk
+        { x: cx - w - 5, y: b.y - h - d + 2, width: w, height: h }, // above, left of trunk
+        // diagonal corners
+        { x: b.x + b.width + d, y: b.y + b.height + d / 2, width: w, height: h },
+        { x: b.x - w - d, y: b.y + b.height + d / 2, width: w, height: h },
+        { x: b.x + b.width + d, y: b.y - h - d / 2, width: w, height: h },
+        { x: b.x - w - d, y: b.y - h - d / 2, width: w, height: h },
+      );
     }
-    const box = candidates.find((c) => !collides(c, obstacles())) ?? candidates[0];
+    const obs = obstacles();
+    const box = candidates.find((c) => !collides(c, obs)) ?? leastOverlap(candidates, obs);
     n.labelBounds = box;
     placed.push(box);
   }
@@ -105,19 +114,25 @@ export function placeLabels(model: BpmnModel, scope: string): void {
     }
     const { w, h } = labelSize(e.name);
     const candidates: Bounds[] = [];
-    for (let i = 0; i < wps.length - 1; i++) {
-      const a = wps[i];
-      const b = wps[i + 1];
-      const len = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-      if (len < 16) continue;
-      if (Math.abs(a.y - b.y) < 1) {
-        const dir = Math.sign(b.x - a.x);
-        const x = dir > 0 ? a.x + 6 : a.x - 6 - w;
-        candidates.push({ x, y: a.y - h - 2, width: w, height: h }, { x, y: a.y + 3, width: w, height: h });
-      } else {
-        const dir = Math.sign(b.y - a.y);
-        const y = dir > 0 ? a.y + 4 : a.y - 4 - h;
-        candidates.push({ x: a.x + 4, y, width: w, height: h }, { x: a.x - w - 4, y, width: w, height: h });
+    // Along each segment (start first — where a reader looks for a branch
+    // condition — then middle and end), on both sides, near then farther.
+    for (const gap of [3, 12]) {
+      for (let i = 0; i < wps.length - 1; i++) {
+        const a = wps[i];
+        const b = wps[i + 1];
+        const len = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+        if (len < 16) continue;
+        if (Math.abs(a.y - b.y) < 1) {
+          const dir = Math.sign(b.x - a.x);
+          const lo = Math.min(a.x, b.x);
+          const hi = Math.max(a.x, b.x);
+          const xs = [dir > 0 ? a.x + 6 : a.x - 6 - w, (a.x + b.x) / 2 - w / 2, dir > 0 ? b.x - 6 - w : b.x + 6].filter((x) => x >= lo - w && x <= hi);
+          for (const x of xs) candidates.push({ x, y: a.y - h - gap + 1, width: w, height: h }, { x, y: a.y + gap, width: w, height: h });
+        } else {
+          const dir = Math.sign(b.y - a.y);
+          const ys = [dir > 0 ? a.y + 4 : a.y - 4 - h, (a.y + b.y) / 2 - h / 2, dir > 0 ? b.y - 4 - h : b.y + 4];
+          for (const y of ys) candidates.push({ x: a.x + gap + 1, y, width: w, height: h }, { x: a.x - w - gap - 1, y, width: w, height: h });
+        }
       }
     }
     // Fallback: around the midpoint, increasingly far from the line.
@@ -128,10 +143,30 @@ export function placeLabels(model: BpmnModel, scope: string): void {
     for (const d of [h, -h, 2 * h, -2 * h]) {
       candidates.push(horizontal ? { x: base.x, y: base.y + d, width: w, height: h } : { x: base.x + d + (d > 0 ? w / 2 : -w / 2), y: base.y, width: w, height: h });
     }
-    const box = candidates.find((c) => !collides(c, obstacles(e.id))) ?? candidates[0];
+    const obs = obstacles(e.id);
+    const box = candidates.find((c) => !collides(c, obs)) ?? leastOverlap(candidates, obs);
     e.labelBounds = box;
     placed.push(box);
   }
+}
+
+/** When every candidate collides, take the one covering the least area. */
+function leastOverlap(candidates: Bounds[], obstacles: Bounds[]): Bounds {
+  let best = candidates[0];
+  let bestA = Infinity;
+  for (const c of candidates) {
+    let a = 0;
+    for (const o of obstacles) {
+      const w = Math.min(c.x + c.width, o.x + o.width) - Math.max(c.x, o.x);
+      const h = Math.min(c.y + c.height, o.y + o.height) - Math.max(c.y, o.y);
+      if (w > 0 && h > 0) a += Math.max(w, 2) * Math.max(h, 2);
+    }
+    if (a < bestA) {
+      bestA = a;
+      best = c;
+    }
+  }
+  return best;
 }
 
 /** Number of labels colliding with shapes, other labels or foreign flows. */

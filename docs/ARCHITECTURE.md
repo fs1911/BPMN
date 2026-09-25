@@ -58,6 +58,15 @@ a rip-up-and-reroute pass for edges that still cross.
 **Labels** (`labels.ts`): node labels and branch conditions placed next to the
 gateway exit, avoiding shapes, flows, lane name strips and other labels.
 
+**Guarantees by construction** (verified on 10 000 random processes, see
+README): no two flows share a track (one track per vertical segment per
+corridor; same-y conflicts are forbidden in the exact track ordering and
+resolved by nudging an activity port when a swap makes them unavoidable),
+corner routes reserve their column stretch, A* treats running along another
+flow as prohibitive and never leaves the pool. Crossings are minimised
+(multi-start median/transpose/sifting ordering, exact DP track order,
+all-or-nothing corner trunks, A* crossing penalty) but not zero in general.
+
 **Measured quality** (`metrics.ts`): crossings, overlaps, bundles (flows sharing
 one gateway corner — standard notation, counted separately), shape hits, flows
 outside the pool, node overlaps, label collisions, bends, length.
