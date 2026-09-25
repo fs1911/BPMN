@@ -15,9 +15,16 @@ export function descriptionToMarkdown(d: ProcessDescription): string {
     for (const r of d.roles) out.push(`| ${cell(r.name)} | ${cell(r.steps.map((s) => `${s.no}. ${s.name}`).join(", ") || "—")} |`);
     out.push("");
   }
+  if (d.partners.length) {
+    out.push("## Externe Partner", "", "| Partner | Kommunikation |", "|---|---|");
+    for (const p of d.partners) {
+      out.push(`| ${cell(p.name)} | ${cell(p.messages.map((m) => `${m.no}. ${m.direction === "out" ? "an" : "von"} ${p.name}: ${m.name || "Nachricht"}`).join("; ") || "—")} |`);
+    }
+    out.push("");
+  }
   out.push("## Ablauf im Detail", "", "| Nr. | Schritt | Art | Verantwortlich | Beschreibung | Weiter |", "|---|---|---|---|---|---|");
   for (const s of d.steps) {
-    const desc = [s.description, s.documentation].filter(Boolean).join(" ") || "—";
+    const desc = [s.description, messageText(s), s.documentation].filter(Boolean).join(" ") || "—";
     out.push(`| ${s.no} | ${cell(s.name)} | ${s.typeLabel} | ${cell(s.role)} | ${cell(desc)} | ${cell(formatNext(s.next))} |`);
   }
   out.push("");
@@ -33,4 +40,11 @@ export function descriptionToMarkdown(d: ProcessDescription): string {
 export function formatNext(next: StepLink[]): string {
   if (!next.length) return "—";
   return next.map((l) => `${l.label ? `${l.label} → ` : "→ "}${l.no}${l.loop ? " (zurück)" : ""}`).join("; ");
+}
+
+/** "Sendet „Offerte“ an Auftraggeber." / "Empfängt „Ausschreibung“ von Auftraggeber." */
+export function messageText(s: { messages: { direction: "out" | "in"; partner: string; name: string }[] }): string {
+  return s.messages
+    .map((m) => `${m.direction === "out" ? "Sendet" : "Empfängt"} ${m.name ? `„${m.name}“` : "eine Nachricht"} ${m.direction === "out" ? "an" : "von"} ${m.partner}.`)
+    .join(" ");
 }

@@ -45,6 +45,8 @@ function g(title: string, lanes: string[], nodes: string[], flows: string[], eve
       const [from, to] = edge.split(">");
       return { from, to, condition, isDefault: false };
     }),
+    pools: [],
+    messageFlows: [],
     systems: [],
     dataObjects: [],
     assumptions: [],
@@ -158,7 +160,86 @@ export const KREDIT = g(
   { s: "message", c1: "message", c2: "timer" },
 );
 
-export const REKLAMATION = reklamation as GraphIR;
+/** Real user process (Swiss construction tender), reconstructed 1:1 from the generated PDF. */
+export const AUSSCHREIBUNG = g(
+  "Ausschreibung prüfen, kalkulieren und Offerte einreichen",
+  ["Akquisition", "Kalkulation", "Bau/Projektleitung", "Einkauf", "Geschäftsleitung", "Kalkulationssoftware"],
+  [
+    "s1:S:Ausschreibung eingegangen@Akquisition",
+    "t2:u:Anfrage und Unterlagen erfassen@Akquisition",
+    "t3:s:Vorgang anlegen und Unterlagen prüfen@Kalkulationssoftware",
+    "g4:X:Unterlagen vollständig und lesbar?@Kalkulationssoftware",
+    "t5:snd:Fehlende Unterlagen anfordern@Akquisition",
+    "c6:C:Unterlagen eingegangen@Akquisition",
+    "t7:u:Bearbeitbarkeit prüfen@Kalkulation",
+    "g8:X:Ausschreibung bearbeiten?@Kalkulation",
+    "t9:snd:Verzicht mitteilen@Akquisition",
+    "t10:u:Vorgang schliessen@Akquisition",
+    "e11:E:Keine Offerte@Akquisition",
+    "p12:P:@Kalkulation",
+    "t13:u:Leistungsverzeichnis analysieren@Kalkulation",
+    "t14:u:Bauablauf und Machbarkeit prüfen@Bau/Projektleitung",
+    "t15:u:Preise anfragen@Einkauf",
+    "t16:s:Preisgrundlagen bereitstellen@Kalkulationssoftware",
+    "p17:P:@Kalkulation",
+    "g18:X:Unklarheiten offen?@Kalkulation",
+    "t19:snd:Fragen an Auftraggeber stellen@Akquisition",
+    "t20:u:Antwort erfassen und Grundlagen aktualisieren@Kalkulation",
+    "t21:u:Geänderte Positionen prüfen@Kalkulation",
+    "t22:u:Preise und Angebotssumme ermitteln@Kalkulation",
+    "t23:s:Angebotssumme berechnen und prüfen@Kalkulationssoftware",
+    "g24:X:Kalkulation rechnerisch vollständig?@Kalkulationssoftware",
+    "t25:u:Markierte Positionen korrigieren@Kalkulation",
+    "p26:P:@Kalkulation",
+    "t27:u:Ausführbarkeit und Risiken prüfen@Bau/Projektleitung",
+    "t28:u:Lieferantenpreise prüfen@Einkauf",
+    "p29:P:@Kalkulation",
+    "g30:X:Anpassungen erforderlich?@Kalkulation",
+    "t31:u:Betroffene Positionen überarbeiten@Kalkulation",
+    "t32:s:Offertfassung erstellen@Kalkulationssoftware",
+    "t33:u:Offerte prüfen@Geschäftsleitung",
+    "g34:X:Offerte freigegeben?@Geschäftsleitung",
+    "t35:snd:Absage mitteilen@Akquisition",
+    "t36:u:Vorgang schliessen@Akquisition",
+    "e37:E:Keine Offerte@Akquisition",
+    "t38:u:Freigabeantrag kommentieren@Geschäftsleitung",
+    "t39:u:Offerte überarbeiten@Kalkulation",
+    "t40:s:Offertdateien erzeugen@Kalkulationssoftware",
+    "t41:snd:Offerte einreichen@Akquisition",
+    "t42:s:Abgabe protokollieren@Kalkulationssoftware",
+    "g43:X:Fristgerecht und vollständig eingereicht?@Kalkulationssoftware",
+    "e44:E:Offerte eingereicht und dokumentiert@Akquisition",
+    "t45:u:Korrekturmöglichkeit klären@Akquisition",
+    "g46:X:Korrektur zulässig?@Akquisition",
+    "t47:u:Einreichung korrigieren@Akquisition",
+    "t48:u:Nicht erfolgreichen Abschluss dokumentieren@Akquisition",
+    "e49:E:Offerte nicht gültig eingereicht@Akquisition",
+  ],
+  [
+    "s1>t2", "t2>t3", "t3>g4", "g4>t5:nein", "g4>t7:ja", "t5>c6", "c6>t3", "t7>g8", "g8>t9:nein", "g8>p12:ja",
+    "t9>t10", "t10>e11", "p12>t13", "p12>t14", "p12>t15", "p12>t16", "t13>p17", "t14>p17", "t15>p17", "t16>p17",
+    "p17>g18", "g18>t19:ja", "g18>t22:nein", "t19>t20", "t20>t21", "t21>g18", "t22>t23", "t23>g24", "g24>t25:nein",
+    "g24>p26:ja", "t25>t23", "p26>t27", "p26>t28", "t27>p29", "t28>p29", "p29>g30", "g30>t31:ja", "g30>t32:nein",
+    "t31>t23", "t32>t33", "t33>g34", "g34>t35:nein, kein Angebot", "g34>t38:nein, Überarbeitung möglich", "g34>t40:ja",
+    "t35>t36", "t36>e37", "t38>t39", "t39>t23", "t40>t41", "t41>t42", "t42>g43", "g43>e44:ja", "g43>t45:nein",
+    "t45>g46", "g46>t47:ja", "g46>t48:nein", "t47>t42", "t48>e49",
+  ],
+  { s1: "message", c6: "message" },
+);
+// …with the client as external pool and the message flows the prompt asked for
+AUSSCHREIBUNG.pools = [{ id: "p_ag", name: "Auftraggeber" }];
+AUSSCHREIBUNG.messageFlows = [
+  { from: "p_ag", to: "s1", name: "Ausschreibung" },
+  { from: "t5", to: "p_ag", name: "Nachforderung" },
+  { from: "p_ag", to: "c6", name: "Unterlagen" },
+  { from: "t9", to: "p_ag", name: "Verzicht" },
+  { from: "t19", to: "p_ag", name: "Rückfragen" },
+  { from: "t35", to: "p_ag", name: "Absage" },
+  { from: "t41", to: "p_ag", name: "Offerte" },
+  { from: "t45", to: "p_ag", name: "Korrekturanfrage" },
+];
+
+export const REKLAMATION = { pools: [], messageFlows: [], ...reklamation } as unknown as GraphIR;
 
 export const CORPUS: Record<string, GraphIR> = {
   reklamation: REKLAMATION,
@@ -166,4 +247,5 @@ export const CORPUS: Record<string, GraphIR> = {
   onboarding: ONBOARDING,
   urlaub: URLAUB,
   kredit: KREDIT,
+  ausschreibung: AUSSCHREIBUNG,
 };

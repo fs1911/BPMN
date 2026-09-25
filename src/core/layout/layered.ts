@@ -52,6 +52,11 @@ export interface LayoutOptions {
    * its arrangement unless a different order has fewer crossings.
    */
   preferOrder?: Record<string, number>;
+  /**
+   * How loops (back edges) are drawn: as a reserved channel in the target's or
+   * the source's lane, or left entirely to the A* router.
+   */
+  loopMode: "channel-target" | "channel-source" | "router";
 }
 
 export const DEFAULT_LAYOUT: LayoutOptions = {
@@ -61,6 +66,7 @@ export const DEFAULT_LAYOUT: LayoutOptions = {
   marginX: 60,
   marginY: 60,
   longEdgeLane: "source",
+  loopMode: "channel-target",
 };
 
 export interface LayoutResult {
@@ -90,6 +96,8 @@ interface Item {
   w: number;
   h: number;
   y: number; // center
+  /** set on loop-channel dummies: the back edge they belong to. */
+  loop?: string;
 }
 
 interface Layered {
@@ -98,6 +106,12 @@ interface Layered {
   adj: Adjacency;
   /** original edge id → [source, dummies…, target] */
   chains: Record<string, string[]>;
+  /**
+   * back edge id → channel dummies from the target's rank to the source's rank
+   * (inclusive). A loop runs as its own track right below its target and back
+   * along this channel, instead of being routed around the whole diagram.
+   */
+  loops: Record<string, string[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +137,7 @@ function buildLayered(
   rank: Record<string, number>,
   laneOf: (id: string) => string,
   longEdgeLane: "source" | "target",
+  loopMode: LayoutOptions["loopMode"] = "channel-target",
 ): Layered {
   const items: Record<string, Item> = {};
   for (const id of nodeIds) {
@@ -158,7 +173,61 @@ function buildLayered(
     }
   }
 
-  return { items, ranks: initialOrder(items, ladj, nodeIds, false), adj: ladj, chains };
+  // Loop channels: one dummy per rank from the loop's target to its source, in
+  // the target's lane. Consecutive dummies are linked so crossing reduction
+  // sees the channel like any other flow.
+  const loops: Record<string, string[]> = {};
+  for (const id of nodeIds) {
+    for (const e of adj.outgoing[id] ?? []) {
+      if (loopMode === "router" || !backEdges.has(e.id) || !items[e.target] || e.source === e.target) continue;
+      const rt = rank[e.target];
+      const rs = rank[e.source];
+      if (rs < rt) continue;
+      const lane = loopMode === "channel-source" ? items[e.source].lane : items[e.target].lane;
+      const chain: string[] = [];
+      for (let r = rt; r <= rs; r++) {
+        const did = `__loop_${e.id}_${r}`;
+        items[did] = { id: did, dummy: true, lane, rank: r, w: 0, h: DUMMY_H, y: 0, loop: e.id };
+        ladj.outgoing[did] = [];
+        ladj.incoming[did] = [];
+        chain.push(did);
+      }
+      for (let i = 0; i < chain.length - 1; i++) link(`${e.id}#loop${i}`, chain[i], chain[i + 1]);
+      loops[e.id] = chain;
+    }
+  }
+
+  return { items, ranks: initialOrder(items, ladj, nodeIds, false), adj: ladj, chains, loops };
+}
+
+/**
+ * Put each loop channel's end dummies right next to the loop's target and
+ * source, so the short vertical legs at both ends pass no other element.
+ * Larger loops are handled first and end up outermost (nested, no crossings).
+ */
+function pinLoopEnds(L: Layered, model: BpmnModel, laneIdx: (id: string) => number): void {
+  const span = (e: string) => L.loops[e].length;
+  const ids = Object.keys(L.loops).sort((a, b) => span(b) - span(a) || a.localeCompare(b));
+  const place = (dummy: string, anchor: string) => {
+    const rank = L.ranks[L.items[dummy].rank];
+    rank.splice(rank.indexOf(dummy), 1);
+    const la = laneIdx(anchor);
+    const ld = laneIdx(dummy);
+    let at: number;
+    if (la === ld) at = rank.indexOf(anchor) + 1;
+    else if (ld > la) at = rank.findIndex((id) => laneIdx(id) >= ld); // top of a lane below
+    else {
+      const after = rank.findIndex((id) => laneIdx(id) > ld); // bottom of a lane above
+      at = after < 0 ? rank.length : after;
+    }
+    rank.splice(at < 0 ? rank.length : at, 0, dummy);
+  };
+  for (const e of ids) {
+    const chain = L.loops[e];
+    const edge = model.edges[e];
+    place(chain[0], edge.target);
+    place(chain[chain.length - 1], edge.source);
+  }
 }
 
 /** Initial order: DFS from the roots so a branch's nodes start out together. */
@@ -507,9 +576,13 @@ interface RoutePt {
 }
 interface CorridorSeg {
   edge: string;
-  y1: number; // y of the horizontal arriving from the left
-  y2: number; // y of the horizontal leaving to the right
+  y1: number; // y of the horizontal attached on the LEFT of the track
+  y2: number; // y of the horizontal attached on the RIGHT of the track
   x?: number;
+  /** segment of a loop (runs right → left); its ports are never nudged. */
+  loop?: boolean;
+  /** loop segment given up (the loop is routed by A* instead). */
+  dead?: boolean;
 }
 
 function kindOf(n: FlowNode): "gateway" | "event" | "activity" {
@@ -526,7 +599,8 @@ function planRoutes(model: BpmnModel, L: Layered) {
 
   /** Is the node's own column free between its border and y (for corner routes)? */
   // Vertical stretches of a column already used by corner routes (per rank).
-  const reserved: Record<number, [number, number][]> = {};
+  // [from, to, owner] — owner "node:side" lets flows sharing one corner bundle.
+  const reserved: Record<number, [number, number, string][]> = {};
   const span = (nodeId: string, y: number): [number, number] => {
     const it = items[nodeId];
     return y < it.y ? [y - 10, it.y - it.h / 2] : [it.y + it.h / 2, y + 10];
@@ -541,7 +615,8 @@ function planRoutes(model: BpmnModel, L: Layered) {
     });
     return itemsFree && (reserved[it.rank] ?? []).every(([c, d]) => d + 6 < a || c - 6 > b);
   };
-  const reserve = (nodeId: string, y: number) => (reserved[items[nodeId].rank] ||= []).push(span(nodeId, y));
+  const reserve = (nodeId: string, y: number, owner = "") =>
+    (reserved[items[nodeId].rank] ||= []).push([...span(nodeId, y), owner]);
 
   const fan = (n: number, i: number) => (n <= 1 ? 0.5 : 0.25 + (0.5 * i) / (n - 1));
 
@@ -658,7 +733,79 @@ function planRoutes(model: BpmnModel, L: Layered) {
     routes[e] = pts;
   }
 
+  // Loops along their reserved channel: down (or up) from the source into the
+  // channel, back left through the columns, and up (or down) into the target.
+  // A loop whose legs are not clear, or whose corner a forward flow already
+  // uses, is left to the A* router.
+  const sideUsed = (nodeId: string, side: Side) =>
+    Object.entries(exits).some(([e, p]) => L.chains[e][0] === nodeId && p.side === side) ||
+    Object.entries(entries).some(([e, p]) => L.chains[e][L.chains[e].length - 1] === nodeId && p.side === side);
+  const legFree = (nodeId: string, dummyId: string, owner: string) => {
+    const it = items[nodeId];
+    const d = items[dummyId];
+    const [a, b] = d.y > it.y ? [it.y + it.h / 2, d.y + 4] : [d.y - 4, it.y - it.h / 2];
+    const clear = L.ranks[it.rank].every((id) => {
+      if (id === nodeId || id === dummyId) return true;
+      const o = items[id];
+      return o.y + o.h / 2 + 4 < a || o.y - o.h / 2 - 4 > b;
+    });
+    return clear && (reserved[it.rank] ?? []).every(([c, dd, own]) => own === owner || dd + 4 < a || c - 4 > b);
+  };
+  for (const [e, chain] of Object.entries(L.loops)) {
+    const edge = model.edges[e];
+    const src = edge.source;
+    const tgt = edge.target;
+    const dS = chain[chain.length - 1];
+    const dT = chain[0];
+    const sIt = items[src];
+    const tIt = items[tgt];
+    const exitSide: Side = items[dS].y > sIt.y ? "bottom" : "top";
+    const entrySide: Side = items[dT].y > tIt.y ? "bottom" : "top";
+    const sOwner = `${src}:${exitSide}`;
+    const tOwner = `${tgt}:${entrySide}`;
+    if (sideUsed(src, exitSide) || sideUsed(tgt, entrySide)) continue;
+    if (!legFree(src, dS, sOwner) || !legFree(tgt, dT, tOwner)) continue;
+    const edgeY = (it: Item, side: Side) => (side === "bottom" ? it.y + it.h / 2 : it.y - it.h / 2);
+    const pts: RoutePt[] = [{ x: { node: src, at: "cx" }, y: edgeY(sIt, exitSide) }];
+    let runY = items[dS].y;
+    pts.push({ x: { node: src, at: "cx" }, y: runY });
+    for (let i = chain.length - 1; i > 0; i--) {
+      const nextY = items[chain[i - 1]].y;
+      if (nextY !== runY) {
+        const r = items[chain[i - 1]].rank; // corridor between rank r and r + 1
+        corridors[r].push({ edge: e, y1: nextY, y2: runY, loop: true });
+        const idx = corridors[r].length - 1;
+        pts.push({ x: { corridor: r, seg: idx }, y: runY }, { x: { corridor: r, seg: idx }, y: nextY });
+        runY = nextY;
+      }
+    }
+    pts.push({ x: { node: tgt, at: "cx" }, y: runY }, { x: { node: tgt, at: "cx" }, y: edgeY(tIt, entrySide) });
+    reserve(src, items[dS].y, sOwner);
+    reserve(tgt, items[dT].y, tOwner);
+    routes[e] = pts;
+  }
+
   for (const segs of corridors) orderTracks(segs);
+
+  // Same-y hand-offs can form a cycle no track order satisfies (e.g. a
+  // staircase of long edges closed by a loop). A loop caught in such a cycle
+  // gives up its channel and is routed by A* instead — never an overlap.
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const segs of corridors) {
+      for (const a of segs) {
+        for (const b of segs) {
+          if (a === b || a.dead || b.dead || a.x! > b.x! || Math.abs(a.y2 - b.y1) >= 0.5) continue;
+          const victim = a.loop ? a.edge : b.loop ? b.edge : undefined;
+          if (!victim) continue;
+          delete routes[victim];
+          for (const cs of corridors) for (const sg of cs) if (sg.loop && sg.edge === victim) sg.dead = true;
+          changed = true;
+        }
+      }
+    }
+    if (changed) for (const segs of corridors) orderTracks(segs);
+  }
 
   // A swap (A: y→y', B: y'→y between neighbouring columns) cannot be separated
   // by track order alone: one horizontal would lie on the other. Move the
@@ -666,7 +813,7 @@ function planRoutes(model: BpmnModel, L: Layered) {
   corridors.forEach((segs, r) => {
     for (const a of segs) {
       for (const b of segs) {
-        if (a === b || a.x! > b.x! || Math.abs(a.y2 - b.y1) >= 0.5) continue;
+        if (a === b || a.dead || b.dead || a.loop || b.loop || a.x! > b.x! || Math.abs(a.y2 - b.y1) >= 0.5) continue;
         if (nudge(a.edge, "entry", a.y2) || nudge(b.edge, "exit", b.y1)) continue;
       }
     }
@@ -718,7 +865,8 @@ function planRoutes(model: BpmnModel, L: Layered) {
  */
 const EXACT_LIMIT = 14;
 
-function orderTracks(segs: CorridorSeg[]): void {
+function orderTracks(all: CorridorSeg[]): void {
+  const segs = all.filter((sg) => !sg.dead);
   const n = segs.length;
   if (n < 2) {
     segs.forEach((s) => (s.x = 0));
@@ -814,15 +962,12 @@ export function layoutScope(model: BpmnModel, scope: string, options: Partial<La
   const laneOf = (id: string) => laneByNode[id] ?? lanes[0];
   const laneIndex: Record<string, number> = Object.fromEntries(lanes.map((l, i) => [l, i]));
 
-  const L = buildLayered(model, layoutNodes, filteredAdj, backEdges, rank, laneOf, opts.longEdgeLane);
+  const L = buildLayered(model, layoutNodes, filteredAdj, backEdges, rank, laneOf, opts.longEdgeLane, opts.loopMode);
   orderRanksMultiStart(L, layoutNodes, (id) => laneIndex[L.items[id].lane], opts.sweeps, opts.preferOrder);
+  pinLoopEnds(L, model, (id) => laneIndex[L.items[id].lane]);
 
-  const loopsPerLane: Record<string, number> = {};
-  for (const id of backEdges) {
-    const e = model.edges[id];
-    if (e) loopsPerLane[laneOf(e.source)] = (loopsPerLane[laneOf(e.source)] ?? 0) + 1;
-  }
-  const bands = assignY(L, lanes, loopsPerLane, opts);
+  // Loops reserve their channel through dummies; no extra lane space needed.
+  const bands = assignY(L, lanes, {}, opts);
   const plan = planRoutes(model, L);
 
   // X: column widths from real nodes, corridor widths from the number of tracks.
@@ -836,7 +981,9 @@ export function layoutScope(model: BpmnModel, scope: string, options: Partial<La
     const r = L.items[L.chains[eid][0]].rank;
     labelRoom[r] = Math.max(labelRoom[r], Math.min(100, Math.max(40, name.length * 6.2)) + 24);
   }
-  const corridorW = plan.corridors.map((segs, r) => Math.max(opts.rankSep, (segs.length + 1) * TRACK_GAP, labelRoom[r]));
+  const corridorW = plan.corridors.map((segs, r) =>
+    Math.max(opts.rankSep, (segs.filter((sg) => !sg.dead).length + 1) * TRACK_GAP, labelRoom[r]),
+  );
   const colX: number[] = [];
   const inset = laneIds.length ? POOL_GUTTER + LANE_INSET : 0;
   let x = opts.marginX + inset;
@@ -848,8 +995,9 @@ export function layoutScope(model: BpmnModel, scope: string, options: Partial<La
   plan.corridors.forEach((segs, r) => {
     if (r >= nR - 1) return;
     const start = colX[r] + colW[r] / 2;
-    const n = segs.length;
-    for (const s of segs) s.x = Math.round(start + ((s.x! + 1) * corridorW[r]) / (n + 1));
+    const live = segs.filter((sg) => !sg.dead);
+    const n = live.length;
+    for (const s of live) s.x = Math.round(start + ((s.x! + 1) * corridorW[r]) / (n + 1));
   });
 
   // Commit node positions.
@@ -891,6 +1039,24 @@ export function layoutScope(model: BpmnModel, scope: string, options: Partial<La
         height: bands.laneTop[last] + bands.laneHeight[last] - top,
       };
     }
+  }
+
+  // A lane-less process that still has its own pool (e.g. because of external
+  // partners) gets a frame around its content.
+  const ownPool = Object.values(model.participants).find((p) => p.processRef === scope);
+  if (ownPool && !laneIds.length && layoutNodes.length) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const id of layoutNodes) {
+      const b = model.nodes[id].bounds;
+      minX = Math.min(minX, b.x);
+      minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.width);
+      maxY = Math.max(maxY, b.y + b.height);
+    }
+    ownPool.bounds = { x: minX - POOL_GUTTER - 50, y: minY - 50, width: maxX - minX + POOL_GUTTER + 100, height: maxY - minY + 100 };
   }
 
   placeBoundaryEvents(model, scope);

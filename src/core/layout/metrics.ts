@@ -28,6 +28,13 @@ export interface LayoutMetrics {
   bends: number;
   /** total routed length (px). */
   length: number;
+  /**
+   * Excess length over the shortest orthogonal connection (px, summed):
+   * long detours around the diagram show up here.
+   */
+  detour: number;
+  /** the single worst detour (px). */
+  maxDetour: number;
   /** non-orthogonal (diagonal) segments. */
   diagonals: number;
   /** labels overlapping shapes, other labels or foreign flows. */
@@ -44,17 +51,33 @@ const EPS = 0.5;
 
 export function measureLayout(model: BpmnModel, scope = model.rootProcessId): LayoutMetrics {
   const nodes = Object.values(model.nodes).filter((n) => n.parent === scope && n.type !== "boundaryEvent");
+  const inScope = (id: string) => model.nodes[id]?.parent === scope || !!model.participants[id];
   const edges = Object.values(model.edges).filter(
-    (e) => e.type === "sequenceFlow" && model.nodes[e.source]?.parent === scope && e.waypoints && e.waypoints.length >= 2,
+    (e) =>
+      e.waypoints &&
+      e.waypoints.length >= 2 &&
+      ((e.type === "sequenceFlow" && model.nodes[e.source]?.parent === scope) ||
+        (e.type === "messageFlow" && (inScope(e.source) || inScope(e.target)))),
   );
 
   const segs: Seg[] = [];
   let bends = 0;
   let length = 0;
+  let detour = 0;
+  let maxDetour = 0;
   let diagonals = 0;
   for (const e of edges) {
     const w = e.waypoints!;
     bends += Math.max(0, w.length - 2);
+    let own = 0;
+    for (let i = 0; i < w.length - 1; i++) own += Math.abs(w[i].x - w[i + 1].x) + Math.abs(w[i].y - w[i + 1].y);
+    // a connection needs at least the Manhattan distance plus short stubs when it has to turn back
+    const a = w[0];
+    const z = w[w.length - 1];
+    const minimal = Math.abs(a.x - z.x) + Math.abs(a.y - z.y) + (e.isBackEdge ? 40 : 0);
+    const excess = Math.max(0, own - minimal);
+    detour += excess;
+    maxDetour = Math.max(maxDetour, excess);
     for (let i = 0; i < w.length - 1; i++) {
       const a = w[i];
       const b = w[i + 1];
@@ -99,6 +122,7 @@ export function measureLayout(model: BpmnModel, scope = model.rootProcessId): La
   if (pool) {
     const r = pool.bounds;
     for (const e of edges) {
+      if (e.type === "messageFlow") continue; // they connect pools by definition
       for (const p of e.waypoints!) {
         if (p.x < r.x - EPS || p.x > r.x + r.width + EPS || p.y < r.y - EPS || p.y > r.y + r.height + EPS) outsidePool++;
       }
@@ -121,6 +145,8 @@ export function measureLayout(model: BpmnModel, scope = model.rootProcessId): La
     nodeOverlaps,
     bends,
     length: Math.round(length),
+    detour: Math.round(detour),
+    maxDetour: Math.round(maxDetour),
     diagonals,
     labelCollisions: countLabelCollisions(model, scope),
   };

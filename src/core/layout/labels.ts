@@ -1,4 +1,4 @@
-import { BpmnModel, Bounds, FlowElementType, isEvent, isGateway } from "../model";
+import { BpmnModel, Bounds, FlowElementType, Point, isEvent, isGateway } from "../model";
 import { rectsOverlap } from "../geometry/geometry";
 
 /**
@@ -114,23 +114,33 @@ export function placeLabels(model: BpmnModel, scope: string): void {
     }
     const { w, h } = labelSize(e.name);
     const candidates: Bounds[] = [];
+    // Segments shared with a sibling branch (a common trunk out of the
+    // gateway) would make "ja"/"nein" ambiguous: label where the branch
+    // splits off, and fall back to the trunk only if nothing else fits.
+    const siblings = Object.values(model.edges).filter((o) => o.id !== e.id && o.source === e.source && o.waypoints);
+    const shared = (a: Point, b: Point) => siblings.some((o) => o.waypoints!.some((p, j) => j > 0 && overlaps(a, b, o.waypoints![j - 1], p)));
+    const order = [...wps.keys()].slice(0, -1);
+    order.sort((i, j) => Number(shared(wps[i], wps[i + 1])) - Number(shared(wps[j], wps[j + 1])));
     // Along each segment (start first — where a reader looks for a branch
     // condition — then middle and end), on both sides, near then farther.
-    for (const gap of [3, 12]) {
-      for (let i = 0; i < wps.length - 1; i++) {
+    for (const i of order) {
+      for (const gap of [3, 12]) {
         const a = wps[i];
         const b = wps[i + 1];
         const len = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
         if (len < 16) continue;
+        // Right after the split point a label still reads as belonging to
+        // the trunk: move it along the branch.
+        const afterTrunk = i > 0 && shared(wps[i - 1], a);
         if (Math.abs(a.y - b.y) < 1) {
           const dir = Math.sign(b.x - a.x);
           const lo = Math.min(a.x, b.x);
           const hi = Math.max(a.x, b.x);
-          const xs = [dir > 0 ? a.x + 6 : a.x - 6 - w, (a.x + b.x) / 2 - w / 2, dir > 0 ? b.x - 6 - w : b.x + 6].filter((x) => x >= lo - w && x <= hi);
+          const xs = [dir > 0 ? a.x + 6 : a.x - 6 - w, (a.x + b.x) / 2 - w / 2, dir > 0 ? b.x - 6 - w : b.x + 6].slice(afterTrunk ? 1 : 0).filter((x) => x >= lo - w && x <= hi);
           for (const x of xs) candidates.push({ x, y: a.y - h - gap + 1, width: w, height: h }, { x, y: a.y + gap, width: w, height: h });
         } else {
           const dir = Math.sign(b.y - a.y);
-          const ys = [dir > 0 ? a.y + 4 : a.y - 4 - h, (a.y + b.y) / 2 - h / 2, dir > 0 ? b.y - 4 - h : b.y + 4];
+          const ys = [dir > 0 ? a.y + 4 : a.y - 4 - h, (a.y + b.y) / 2 - h / 2, dir > 0 ? b.y - 4 - h : b.y + 4].slice(afterTrunk ? 1 : 0);
           for (const y of ys) candidates.push({ x: a.x + gap + 1, y, width: w, height: h }, { x: a.x - w - gap - 1, y, width: w, height: h });
         }
       }
@@ -148,6 +158,18 @@ export function placeLabels(model: BpmnModel, scope: string): void {
     e.labelBounds = box;
     placed.push(box);
   }
+}
+
+/** Two axis-parallel segments on the same line with a common stretch. */
+function overlaps(a: Point, b: Point, c: Point, d: Point): boolean {
+  const hor = (p: Point, q: Point) => Math.abs(p.y - q.y) < 1;
+  if (hor(a, b) && hor(c, d) && Math.abs(a.y - c.y) < 1) {
+    return Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) - Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x)) > 4;
+  }
+  if (!hor(a, b) && !hor(c, d) && Math.abs(a.x - c.x) < 1) {
+    return Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y)) - Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y)) > 4;
+  }
+  return false;
 }
 
 /** When every candidate collides, take the one covering the least area. */

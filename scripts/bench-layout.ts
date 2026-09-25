@@ -31,7 +31,7 @@ Der Prozess endet, wenn die Bestellung an den Lieferanten gesendet wurde.`,
 const svgDir = process.argv.includes("--svg") ? process.argv[process.argv.indexOf("--svg") + 1] : undefined;
 if (svgDir) mkdirSync(svgDir, { recursive: true });
 
-const keys = ["crossings", "overlaps", "bundles", "shapeHits", "outsidePool", "nodeOverlaps", "labelCollisions", "bends", "length"] as const;
+const keys = ["crossings", "overlaps", "bundles", "shapeHits", "outsidePool", "nodeOverlaps", "labelCollisions", "bends", "detour", "maxDetour"] as const;
 const total: Record<string, number> = Object.fromEntries(keys.map((k) => [k, 0]));
 console.log(["case".padEnd(24), ...keys.map((k) => k.padStart(11))].join(""));
 for (const [name, m] of Object.entries(cases)) {
@@ -47,9 +47,12 @@ function toSvg(m: BpmnModel): string {
   let maxX = 0;
   let maxY = 0;
   const grow = (x: number, y: number) => ((maxX = Math.max(maxX, x)), (maxY = Math.max(maxY, y)));
+  let minY = 0;
   for (const p of Object.values(m.participants)) {
     const b = p.bounds;
+    minY = Math.min(minY, b.y);
     grow(b.x + b.width, b.y + b.height);
+    if (!p.processRef) els.push(`<text x="${b.x + b.width / 2}" y="${b.y + b.height / 2 + 4}" font-size="11" text-anchor="middle">${p.name ?? ""}</text>`);
     els.push(`<rect x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}" fill="none" stroke="#333"/>`);
   }
   for (const l of Object.values(m.lanes)) {
@@ -74,8 +77,9 @@ function toSvg(m: BpmnModel): string {
   for (const e of Object.values(m.edges)) {
     if (!e.waypoints) continue;
     for (const p of e.waypoints) grow(p.x, p.y);
-    els.push(`<polyline points="${e.waypoints.map((p) => `${p.x},${p.y}`).join(" ")}" fill="none" stroke="${e.isBackEdge ? "#c33" : "#036"}" stroke-width="1.3" marker-end="url(#a)"/>`);
+    els.push(`<polyline points="${e.waypoints.map((p) => `${p.x},${p.y}`).join(" ")}" fill="none" stroke="${e.type === "messageFlow" ? "#777" : e.isBackEdge ? "#c33" : "#036"}" stroke-width="1.3" ${e.type === "messageFlow" ? 'stroke-dasharray="6 4"' : ""} marker-end="url(#a)"/>`);
     if (e.name && e.labelBounds) els.push(`<text x="${e.labelBounds.x}" y="${e.labelBounds.y + 10}" font-size="9" fill="#060">${e.name}</text>`);
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX + 40}" height="${maxY + 40}" style="background:#fff"><defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#036"/></marker></defs>${els.join("")}</svg>`;
+  const top = Math.min(0, minY - 20);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX + 40}" height="${maxY + 40 - top}" viewBox="0 ${top} ${maxX + 40} ${maxY + 40 - top}" style="background:#fff"><defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#036"/></marker></defs>${els.join("")}</svg>`;
 }

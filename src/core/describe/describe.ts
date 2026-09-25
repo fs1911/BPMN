@@ -48,6 +48,8 @@ export interface DescriptionStep {
   /** text entered in the element's documentation field. */
   documentation?: string;
   next: StepLink[];
+  /** messages exchanged with external parties in this step. */
+  messages: { direction: "out" | "in"; partner: string; name: string }[];
 }
 
 export interface ProcessDescription {
@@ -63,6 +65,8 @@ export interface ProcessDescription {
   triggers: string[];
   outcomes: string[];
   roles: { name: string; steps: { no: number; name: string }[] }[];
+  /** external parties and what is exchanged with them. */
+  partners: { name: string; messages: { no: number; direction: "out" | "in"; name: string }[] }[];
   stats: { steps: number; activities: number; decisions: number; parallel: number; loops: number; roles: number };
   steps: DescriptionStep[];
   openPoints: string[];
@@ -129,6 +133,15 @@ export function describeProcess(model: BpmnModel, opts: DescribeOptions = {}): P
   const noOf: Record<string, number> = {};
   order.forEach((n, i) => (noOf[n.id] = i + 1));
 
+  const messagesOf = (id: string) =>
+    Object.values(model.edges)
+      .filter((e) => e.type === "messageFlow" && (e.source === id || e.target === id))
+      .map((e) => {
+        const partnerId = e.source === id ? e.target : e.source;
+        const partner = model.participants[partnerId]?.name || model.nodes[partnerId]?.name || "Externer Partner";
+        return { direction: (e.source === id ? "out" : "in") as "out" | "in", partner, name: e.name ?? "" };
+      });
+
   // --- Steps
   const kindOf: Record<string, StepKind> = {};
   const nameOf: Record<string, string> = {};
@@ -151,6 +164,7 @@ export function describeProcess(model: BpmnModel, opts: DescribeOptions = {}): P
       role: roleOf(n),
       description: explain(n, kind, roleOf(n), next, prev, byId, noOf),
       documentation: n.documentation?.trim() || undefined,
+      messages: messagesOf(n.id),
       next,
     };
   });
@@ -176,6 +190,15 @@ export function describeProcess(model: BpmnModel, opts: DescribeOptions = {}): P
   const summary = buildSummary(title, starts, ends, roleNames, activities.length, decisions.length, parallel.length, loops.length);
 
   // --- Open points
+  const partners = Object.values(model.participants)
+    .filter((p) => !p.processRef)
+    .map((p) => ({
+      name: p.name || "Externer Partner",
+      messages: steps
+        .flatMap((st) => st.messages.filter((m) => m.partner === (p.name || "Externer Partner")).map((m) => ({ no: st.no, direction: m.direction, name: m.name })))
+        .sort((a, b) => a.no - b.no),
+    }));
+
   const openPoints: string[] = [];
   for (const s of steps) {
     const unnamed = !model.nodes[s.id].name?.trim();
@@ -208,6 +231,7 @@ export function describeProcess(model: BpmnModel, opts: DescribeOptions = {}): P
     triggers: starts.map((s) => `${displayName(s)}${eventSuffix(s)}`),
     outcomes: ends.map((e) => displayName(e)),
     roles,
+    partners,
     stats: {
       steps: steps.length,
       activities: activities.length,

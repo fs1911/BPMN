@@ -1,5 +1,5 @@
 import { BpmnModel, cloneModel } from "../model";
-import { routeMessageFlows, routeScope, RouteOptions } from "../routing/router";
+import { placeExternalPools, routeMessageFlows, routeScope, RouteOptions } from "../routing/router";
 import { LayoutOptions, LayoutResult, contentBounds, fitLabelSizes, layoutScope } from "./layered";
 import { placeLabels } from "./labels";
 import { measureLayout } from "./metrics";
@@ -29,34 +29,56 @@ export function autoLayout(
 ): LayoutResult {
   fitLabelSizes(model, scope);
   const hasLanes = (model.processes[scope]?.lanes.length ?? 0) > 0;
-  const policies: Array<"source" | "target"> = opts.layout?.longEdgeLane
+  const small = Object.keys(model.nodes).length <= 150;
+  const edgePolicies: Array<"source" | "target"> = opts.layout?.longEdgeLane
     ? [opts.layout.longEdgeLane]
-    : hasLanes && Object.keys(model.nodes).length <= 150
+    : hasLanes && small
       ? ["source", "target"]
       : ["source"]; // very large diagrams: one variant keeps the layout responsive
+  const loopModes: Array<LayoutOptions["loopMode"]> = opts.layout?.loopMode
+    ? [opts.layout.loopMode]
+    : small
+      ? hasLanes
+        ? ["channel-target", "channel-source", "router"]
+        : ["channel-target", "router"]
+      : ["channel-target"];
 
+  // Every variant is laid out and measured; the best-scoring one wins.
+  const variants = edgePolicies.flatMap((longEdgeLane) => loopModes.map((loopMode) => ({ longEdgeLane, loopMode })));
   let best: { model: BpmnModel; result: LayoutResult; score: number } | undefined;
-  for (const longEdgeLane of policies) {
-    const candidate = policies.length > 1 ? cloneModel(model) : model;
-    const result = layoutScope(candidate, scope, { ...opts.layout, longEdgeLane });
-    // Forward flows are routed by the layout itself; A* handles the loops.
+  let hasBackEdges = true;
+  for (const v of variants) {
+    // loop modes only differ when there are loops
+    if (!hasBackEdges && v.loopMode !== loopModes[0]) continue;
+    const candidate = variants.length > 1 ? cloneModel(model) : model;
+    const result = layoutScope(candidate, scope, { ...opts.layout, ...v });
+    hasBackEdges = result.backEdgeIds.size > 0;
+    // Forward flows (and channel loops) are routed by the layout; A* handles the rest.
     routeScope(candidate, scope, opts.routing, { keep: result.routed });
     const score = layoutScore(candidate, scope);
     if (!best || score < best.score) best = { model: candidate, result, score };
   }
   if (best!.model !== model) copyGeometry(best!.model, model);
 
+  placeExternalPools(model, scope);
   routeMessageFlows(model);
   placeLabels(model, scope);
   return best!.result;
 }
 
-function layoutScore(model: BpmnModel, scope: string): number {
+/**
+ * Quality score (lower is better). Hard defects dominate; a crossing weighs
+ * like a ~300 px detour — long lines around the whole diagram are at least as
+ * hard to read as a crossing.
+ */
+export function layoutScore(model: BpmnModel, scope: string): number {
   const m = measureLayout(model, scope);
   return (
-    1000 * (m.crossings + m.overlaps + m.shapeHits + m.nodeOverlaps + m.outsidePool) +
+    10000 * (m.overlaps + m.shapeHits + m.nodeOverlaps + m.outsidePool) +
+    300 * m.crossings +
     150 * m.bundles +
     20 * m.bends +
+    m.detour +
     m.length / 20
   );
 }
@@ -69,7 +91,7 @@ function copyGeometry(from: BpmnModel, to: BpmnModel): void {
     to.edges[id].isBackEdge = e.isBackEdge;
   }
   for (const [id, l] of Object.entries(from.lanes)) if (to.lanes[id]) to.lanes[id].bounds = { ...l.bounds };
-  for (const [id, p] of Object.entries(from.participants)) if (to.participants[id]) to.participants[id].bounds = { ...p.bounds };
+  for (const [id, p] of Object.entries(from.participants)) if (to.participants[id] && p.processRef) to.participants[id].bounds = { ...p.bounds };
 }
 
 /** Re-route only (flow cleanup) without moving any shape. */

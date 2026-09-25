@@ -51,8 +51,11 @@ the whole current diagram with its element ids and returns the full updated
 model; unchanged elements keep their ids, documentation texts, boundary events
 and — where it costs no extra crossings — their arrangement. New elements are
 highlighted green, changed ones orange, as a preview to accept or reject.
-Elements the AI format cannot represent (data objects, annotations, other
-pools, sub-process contents) are reported before you accept.
+External parties (customer, authority, client) become their own collapsed
+pools, connected only by message flows. Rework loops are drawn as short
+channels right below the flow, entered through an XOR merge instead of a
+second arrow into the task. Elements the AI format cannot represent (data
+objects, annotations, sub-process contents) are reported before you accept.
 Without a key both fall back to the offline rule-based parser, and the chat
 says so.
 
@@ -258,8 +261,8 @@ provenance (every element traces to source text), ambiguity surfacing.
   role-prefixed/“if…otherwise” business processes (its target domain) and
   surfaces ambiguity rather than inventing logic. It fails on free-form prose;
   that is what the Claude path is for.
-- AI edits drop data objects, annotations, other pools and sub-process
-  contents (reported in the preview; *Verwerfen* restores the diagram).
+- AI edits drop data objects, annotations, other process pools and
+  sub-process contents (reported in the preview; *Verwerfen* restores the diagram).
 - The LLM path has been verified end-to-end only against a mocked API (Deno +
   browser); output quality on real process texts still needs a test set.
 - A\* routing is tuned for diagrams up to a few hundred nodes; beyond that the

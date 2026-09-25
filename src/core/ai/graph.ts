@@ -129,6 +129,29 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
     );
   }
 
+  // External pools and message flows: a message flow must connect exactly one
+  // element of the process with one external pool.
+  const pools: GraphIR["pools"] = [];
+  const poolIds = new Set<string>();
+  for (const p of Array.isArray(r.pools) ? r.pools : []) {
+    const id = xmlId(str((p as any)?.id));
+    const name = str((p as any)?.name);
+    if (!id || !name || poolIds.has(id) || nodeIds.has(id) || laneIds.has(id)) continue;
+    poolIds.add(id);
+    pools.push({ id, name });
+  }
+  const messageFlows: GraphIR["messageFlows"] = [];
+  for (const m of Array.isArray(r.messageFlows) ? r.messageFlows : []) {
+    const from = xmlId(str((m as any)?.from));
+    const to = xmlId(str((m as any)?.to));
+    const ok = (nodeIds.has(from) && poolIds.has(to)) || (poolIds.has(from) && nodeIds.has(to));
+    if (!ok) {
+      repairs.push(`Nachrichtenfluss ${from || "?"} → ${to || "?"} verbindet nicht genau ein Prozesselement mit einem externen Pool und wurde entfernt.`);
+      continue;
+    }
+    messageFlows.push({ from, to, name: str((m as any)?.name) });
+  }
+
   return {
     ir: {
       title: str(r.title),
@@ -136,6 +159,8 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
       lanes,
       nodes,
       flows,
+      pools,
+      messageFlows,
       systems: strArr(r.systems),
       dataObjects: strArr(r.dataObjects),
       assumptions: strArr(r.assumptions),
@@ -166,20 +191,49 @@ export interface MapGraphOptions {
   beforeLayout?: (model: BpmnModel) => void;
 }
 
-export function mapGraphToModel(ir: GraphIR, opts: MapGraphOptions = {}): MappingResult {
+/**
+ * BPMN style rule: a gateway either splits or joins, and flows merge only at a
+ * gateway. Any activity/event with several incoming flows, and any splitting
+ * gateway with several incoming flows, gets an explicit XOR join in front.
+ * Besides being correct BPMN, this gives loops a clean entry point.
+ */
+export function normalizeMerges(ir: GraphIR): GraphIR {
+  const ids = new Set(ir.nodes.map((n) => n.id));
+  const out = { ...ir, nodes: [...ir.nodes], flows: ir.flows.map((f) => ({ ...f })) };
+  for (const n of ir.nodes) {
+    const incoming = out.flows.filter((f) => f.to === n.id);
+    const outgoing = out.flows.filter((f) => f.from === n.id).length;
+    const gateway = n.type.endsWith("Gateway");
+    if (incoming.length < 2 || n.type === "endEvent" || (gateway && outgoing < 2)) continue;
+    let id = `${n.id}_join`;
+    for (let k = 2; ids.has(id); k++) id = `${n.id}_join${k}`;
+    ids.add(id);
+    out.nodes.push({ id, type: "exclusiveGateway", name: "", lane: n.lane, event: "none", source: "" });
+    for (const f of incoming) f.to = id;
+    out.flows.push({ from: id, to: n.id, condition: "", isDefault: false });
+  }
+  return out;
+}
+
+export function mapGraphToModel(irIn: GraphIR, opts: MapGraphOptions = {}): MappingResult {
+  const ir = normalizeMerges(irIn);
   const model: BpmnModel = emptyModel({ processId: opts.processId ?? "Process_ai", name: ir.title || undefined });
   const provenance: Record<string, string> = {};
 
   const laneMap: Record<string, string> = {};
-  if (ir.lanes.length) {
+  if (ir.lanes.length || ir.pools.length) {
+    // The process gets its own pool once there are lanes or external partners.
     createParticipant(model, {
       name: opts.participantName ?? (ir.title || (ir.lang === "de" ? "Prozess" : "Process")),
       processRef: model.rootProcessId,
     });
-    for (const l of ir.lanes) {
-      laneMap[l.id] = createLane(model, { id: opts.keepIds ? l.id : undefined, name: l.name, parent: model.rootProcessId }).id;
-    }
   }
+  for (const l of ir.lanes) {
+    laneMap[l.id] = createLane(model, { id: opts.keepIds ? l.id : undefined, name: l.name, parent: model.rootProcessId }).id;
+  }
+  // External parties: black-box pools (no process of their own).
+  const poolMap: Record<string, string> = {};
+  for (const p of ir.pools) poolMap[p.id] = createParticipant(model, { id: opts.keepIds ? p.id : undefined, name: p.name }).id;
 
   const idMap: Record<string, string> = {};
   for (const n of ir.nodes) {
@@ -212,6 +266,12 @@ export function mapGraphToModel(ir: GraphIR, opts: MapGraphOptions = {}): Mappin
       isDefault: f.isDefault || undefined,
     });
     if (f.condition) provenance[e.id] = `Bedingung: ${f.condition}`;
+  }
+
+  for (const m of ir.messageFlows) {
+    const from = idMap[m.from] ?? poolMap[m.from];
+    const to = idMap[m.to] ?? poolMap[m.to];
+    if (from && to) createEdge(model, "messageFlow", from, to, { name: m.name || undefined });
   }
 
   if (ir.lanes.length) {

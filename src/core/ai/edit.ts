@@ -40,12 +40,23 @@ export function modelToGraphIR(model: BpmnModel): GraphIR {
     flows: Object.values(model.edges)
       .filter((e) => e.type === "sequenceFlow" && ids.has(e.source) && ids.has(e.target))
       .map((e) => ({ from: e.source, to: e.target, condition: e.name ?? "", isDefault: !!e.isDefault })),
+    pools: externalPools(model).map((p) => ({ id: p.id, name: p.name ?? "" })),
+    messageFlows: Object.values(model.edges)
+      .filter((e) => e.type === "messageFlow")
+      .filter((e) => (ids.has(e.source) && isExternal(model, e.target)) || (isExternal(model, e.source) && ids.has(e.target)))
+      .map((e) => ({ from: e.source, to: e.target, name: e.name ?? "" })),
     systems: [],
     dataObjects: [],
     assumptions: [],
     ambiguities: [],
   };
 }
+
+/** Pools without a process of their own (black boxes for external parties). */
+export function externalPools(model: BpmnModel) {
+  return Object.values(model.participants).filter((p) => !p.processRef);
+}
+const isExternal = (model: BpmnModel, id: string) => !!model.participants[id] && !model.participants[id].processRef;
 
 function guessLang(nodes: FlowNode[]): "de" | "en" {
   const text = nodes.map((n) => n.name ?? "").join(" ");
@@ -163,7 +174,7 @@ function notCarriedOver(prev: BpmnModel): string {
   const data = count((n) => n.type === "dataObjectReference" || n.type === "dataStoreReference");
   const notes = count((n) => n.type === "textAnnotation");
   const nested = count((n) => n.parent !== scope && prev.nodes[n.parent] !== undefined);
-  const otherPools = Object.values(prev.participants).filter((p) => p.processRef !== scope).length;
+  const otherPools = Object.values(prev.participants).filter((p) => p.processRef && p.processRef !== scope).length;
   if (data) parts.push(`${data} Datenobjekt(e)/-speicher`);
   if (notes) parts.push(`${notes} Anmerkung(en)`);
   if (nested) parts.push(`${nested} Element(e) innerhalb von Teilprozessen`);

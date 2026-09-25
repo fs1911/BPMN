@@ -135,6 +135,6 @@ export function randomProcess(n: number, unstructured: boolean): GraphIR {
       if (a && b && a !== b) flow(a, b, "Sonderfall");
     }
   }
-  return { title: "Stresstest", lang: "de", lanes, nodes, flows, systems: [], dataObjects: [], assumptions: [], ambiguities: [] };
+  return { title: "Stresstest", lang: "de", lanes, nodes, flows, pools: [], messageFlows: [], systems: [], dataObjects: [], assumptions: [], ambiguities: [] };
 }
 

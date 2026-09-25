@@ -23,7 +23,10 @@ describe("process description", () => {
     const g = step("Vollständig?");
     expect(g.kind).toBe("decision");
     expect(g.next.map((l) => l.label)).toEqual(["nein", "ja"]);
-    expect(step("Anforderung ergänzen").next[0]).toMatchObject({ no: step("Anforderung prüfen").no, loop: true });
+    // rework returns via the XOR join placed in front of "Anforderung prüfen"
+    const back = step("Anforderung ergänzen").next[0];
+    expect(back).toMatchObject({ name: "(Zusammenführung)", loop: true });
+    expect(back.no).toBe(step("Anforderung prüfen").no - 1);
     const split = d.steps.find((s) => s.kind === "parallel-split")!;
     expect(split.description).toContain("laufen parallel");
     expect(d.stats).toMatchObject({ activities: 9, decisions: 3, parallel: 1, loops: 1, roles: 5 });

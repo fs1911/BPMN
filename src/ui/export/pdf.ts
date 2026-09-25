@@ -1,6 +1,6 @@
 import type { jsPDF as JsPDF } from "jspdf";
 import type { ProcessDescription } from "@core/describe";
-import { formatNext } from "@core/describe";
+import { formatNext, messageText } from "@core/describe";
 
 /**
  * Process documentation as PDF (Signavio/Q.wiki style):
@@ -139,12 +139,23 @@ export async function buildProcessPdf(svg: string, d: ProcessDescription): Promi
     });
   }
 
+  if (d.partners.length) {
+    h2("Externe Partner");
+    table({
+      head: [["Partner", "Kommunikation"]],
+      body: d.partners.map((p) =>
+        [p.name, p.messages.map((m) => `${m.no}. ${m.direction === "out" ? "an" : "von"} ${p.name}: ${m.name || "Nachricht"}`).join("\n") || "—"].map(pdfText),
+      ),
+      columnStyles: { 0: { cellWidth: 45, fontStyle: "bold" } },
+    });
+  }
+
   h2("Ablauf im Detail");
   const gatewayKinds = new Set(["decision", "merge", "parallel-split", "parallel-join", "inclusive-split", "inclusive-join", "event-split"]);
   table({
     head: [["Nr.", "Schritt", "Art", "Verantwortlich", "Beschreibung", "Weiter"]],
     body: d.steps.map((s) =>
-      [String(s.no), s.name, s.typeLabel, s.role, [s.description, s.documentation].filter(Boolean).join("\n") || "—", formatNext(s.next)].map(pdfText),
+      [String(s.no), s.name, s.typeLabel, s.role, [s.description, messageText(s), s.documentation].filter(Boolean).join("\n") || "—", formatNext(s.next)].map(pdfText),
     ),
     columnStyles: {
       0: { cellWidth: 9, halign: "right" },

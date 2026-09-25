@@ -62,6 +62,10 @@ export interface GraphIR {
   lanes: { id: string; name: string }[];
   nodes: GraphNodeIR[];
   flows: GraphFlowIR[];
+  /** external parties as black-box pools (no internal elements). */
+  pools: { id: string; name: string }[];
+  /** messages between an element of the process and an external pool. */
+  messageFlows: { from: string; to: string; name: string }[];
   systems: string[];
   dataObjects: string[];
   assumptions: string[];
@@ -73,7 +77,7 @@ export interface GraphIR {
 export const GRAPH_IR_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["title", "lang", "lanes", "nodes", "flows", "systems", "dataObjects", "assumptions", "ambiguities"],
+  required: ["title", "lang", "lanes", "nodes", "flows", "pools", "messageFlows", "systems", "dataObjects", "assumptions", "ambiguities"],
   properties: {
     title: { type: "string" },
     lang: { type: "string", enum: ["de", "en"] },
@@ -116,6 +120,24 @@ export const GRAPH_IR_SCHEMA = {
         },
       },
     },
+    pools: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "name"],
+        properties: { id: { type: "string" }, name: { type: "string" } },
+      },
+    },
+    messageFlows: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["from", "to", "name"],
+        properties: { from: { type: "string" }, to: { type: "string" }, name: { type: "string" } },
+      },
+    },
     systems: { type: "array", items: { type: "string" } },
     dataObjects: { type: "array", items: { type: "string" } },
     assumptions: { type: "array", items: { type: "string" } },
@@ -148,7 +170,7 @@ Structure
 - Decisions: an exclusiveGateway named as a short question ("Garantiefall?"). Each outgoing flow carries a short condition label ("ja"/"nein" or the concrete outcome). Each branch contains its own activities.
 - When alternative branches continue with a common next step, merge them with an unnamed exclusiveGateway join.
 - Work that happens at the same time ("gleichzeitig", "parallel", "währenddessen", "in the meantime") uses an unnamed parallelGateway split AND a matching parallelGateway join before the flow continues. Only parallel split flows have an empty condition.
-- Rework ("zurück an", "erneut", "until complete") is a flow back to the earlier node where the work is redone.
+- Rework ("zurück an", "erneut", "until complete") is a flow back to the earlier node where the work is redone. Flows merge only at gateways: where several flows lead into the same step (e.g. a rework loop returning), put an unnamed exclusiveGateway join directly before that step. A gateway either splits or joins, never both.
 - Use inclusiveGateway only when the text says one or more of several options apply.
 - Wait for an external reply/deadline: intermediateCatchEvent (event "message" or "timer").
 
@@ -160,6 +182,12 @@ Lanes and types
 - A lane is a role, person or department that performs at least one activity. Recipients who only receive something do not get a lane.
 - Automated steps done by an IT system use serviceTask; put them in a lane named "System" (or the system's name) only if there are such steps. Human work is userTask (or manualTask for physical work like packing/shipping); sending a message to an external party is sendTask.
 - If the text names no actors at all, return an empty "lanes" array and "" as each node's lane.
+
+External parties
+- Parties outside the organisation that only exchange messages with the process (customer, client, supplier, authority, "Auftraggeber") are separate pools: one entry each in "pools" (id + name, no elements inside). The organisation's own roles, departments and IT systems are lanes, never pools.
+- Every message between the process and an external party is one "messageFlows" entry, named after the message ("Ausschreibung", "Offerte", "Rückfragen"): from the sending element (usually a sendTask) to the pool id, or from the pool id to the receiving element (a message start event, a message intermediateCatchEvent or a receiveTask).
+- Flows inside the process are sequence flows ("flows"); flows to or from a pool are only ever message flows.
+- If the text names no external party, return empty "pools" and "messageFlows".
 
 "lang" is the language of the input ("de" or "en"); all names, conditions, assumptions and questions are in that language.`;
 

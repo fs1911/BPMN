@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useEditor } from "@state/store";
-import { formatNext } from "@core/describe";
+import { formatNext, messageText } from "@core/describe";
 
 /**
  * Live process description derived from the diagram (updates on every edit),
@@ -61,6 +61,19 @@ export function DescriptionPanel() {
         </>
       )}
 
+      {d.partners.length > 0 && (
+        <>
+          <h4>Externe Partner</h4>
+          <ul className="desc-roles">
+            {d.partners.map((p) => (
+              <li key={p.name}>
+                <b>{p.name}:</b> {p.messages.map((m) => `${m.no}. ${m.direction === "out" ? "an" : "von"}: ${m.name || "Nachricht"}`).join(", ") || "—"}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
       <h4>Ablauf im Detail</h4>
       <ol className="desc-steps">
         {d.steps.map((s) => (
@@ -75,6 +88,7 @@ export function DescriptionPanel() {
               <span>Weiter: {formatNext(s.next)}</span>
             </div>
             {s.description && <div className="step-desc">{s.description}</div>}
+            {s.messages.length > 0 && <div className="step-desc">✉ {messageText(s)}</div>}
             {s.documentation && <div className="step-doc">{s.documentation}</div>}
           </li>
         ))}
