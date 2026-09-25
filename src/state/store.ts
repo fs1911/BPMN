@@ -32,7 +32,7 @@ interface EditorState {
   aiProgress?: string;
   busy: boolean;
   /** an AI suggestion shown as a preview, awaiting accept/reject. */
-  pending?: { prevXml: string; description: string };
+  pending?: { prevXml: string; description: string; marked?: string[] };
 
   acceptPreview: () => void;
   rejectPreview: () => Promise<void>;
@@ -176,11 +176,14 @@ export const useEditor = create<EditorState>((set, get) => ({
     await get().revalidate();
   },
 
-  acceptPreview: () =>
+  acceptPreview: () => {
+    const { modeler, pending } = get();
+    if (modeler && pending?.marked) unhighlight(modeler, pending.marked);
     set((s) => ({
       pending: undefined,
       aiMessages: [...s.aiMessages, { role: "assistant", text: "✓ Vorschlag übernommen." }],
-    })),
+    }));
+  },
   rejectPreview: async () => {
     const s = get();
     const m = s.modeler;
@@ -240,35 +243,87 @@ export const useEditor = create<EditorState>((set, get) => ({
   instruct: async (text) => {
     const m = get().modeler;
     if (!m) return;
-    set({ aiBusy: true });
+    set({ aiBusy: true, aiProgress: "KI-Dienst wird kontaktiert…", aiMessages: [...get().aiMessages, { role: "user", text }] });
+    const say = (msg: string) => set({ aiMessages: [...get().aiMessages, { role: "assistant", text: msg }] });
     try {
       const prevXml = await getXml(m);
       const model = await getModelFromModeler(m);
-      const res = ai.applyInstruction(model, text);
-      if (res.applied) await loadModelIntoModeler(m, model);
-      await get().revalidate();
-      set({
-        aiBusy: false,
-        pending: res.applied ? { prevXml, description: res.description } : get().pending,
-        aiMessages: [
-          ...get().aiMessages,
-          { role: "user", text },
-          {
-            role: "assistant",
-            text:
-              res.description +
-              (res.assumptions.length ? `\nAnnahmen: ${res.assumptions.join("; ")}` : "") +
-              (res.applied ? "\nVorschau – bitte übernehmen oder verwerfen." : ""),
-          },
-        ],
-      });
+      try {
+        // AI edit: the LLM gets the whole current diagram and returns the updated one.
+        const res = await ai.editViaLlm(model, text, {
+          onProgress: (p) =>
+            set({ aiProgress: p.phase === "thinking" ? "KI plant die Änderung…" : `KI schreibt das geänderte Modell… (${p.chars ?? 0} Zeichen)` }),
+        });
+        const nothing = !res.diff.added.length && !res.diff.removed.length && !res.diff.changed.length && !res.diff.flowsAdded && !res.diff.flowsRemoved;
+        const notes = [
+          ...res.review.ambiguities.map((a) => `Rückfrage: ${a.question}`),
+          ...res.review.assumptions.map((a) => `Annahme: ${a}`),
+          ...(res.review.findings ?? []).map((f) => `⚠ ${f}`),
+        ];
+        if (nothing) {
+          await get().revalidate();
+          set({ aiBusy: false, aiProgress: undefined });
+          say(`KI-Modell: keine Änderung vorgenommen.${notes.length ? "\n" + notes.join("\n") : ""}`);
+          return;
+        }
+        await loadModelIntoModeler(m, res.model);
+        highlight(m, res.diff.added, "ai-added");
+        highlight(m, res.diff.changed, "ai-changed");
+        await get().revalidate();
+        set({
+          aiBusy: false,
+          aiProgress: undefined,
+          aiReview: res.review,
+          pending: { prevXml, description: `KI-Änderung: ${res.diff.summary}`, marked: [...res.diff.added, ...res.diff.changed] },
+        });
+        say(
+          `KI-Modell: ${res.diff.summary}${notes.length ? "\n" + notes.join("\n") : ""}\nGrün = neu, orange = geändert. Vorschau – bitte übernehmen oder verwerfen.`,
+        );
+        return;
+      } catch (err) {
+        if (!(err instanceof ai.LlmUnavailableError)) {
+          set({ aiBusy: false, aiProgress: undefined });
+          say(`KI-Änderung fehlgeschlagen: ${(err as Error).message} Das Diagramm ist unverändert.`);
+          return;
+        }
+        // No AI available: fall back to the rule-based instruction parser, and say so.
+        const res = ai.applyInstruction(model, text);
+        if (res.applied) await loadModelIntoModeler(m, model);
+        await get().revalidate();
+        set({ aiBusy: false, aiProgress: undefined, pending: res.applied ? { prevXml, description: res.description } : get().pending });
+        say(
+          `${(err as Error).message} Stattdessen wurde der regelbasierte Offline-Parser verwendet – er versteht nur wenige feste Satzmuster.\n` +
+            res.description +
+            (res.assumptions.length ? `\nAnnahmen: ${res.assumptions.join("; ")}` : "") +
+            (res.applied ? "\nVorschau – bitte übernehmen oder verwerfen." : ""),
+        );
+      }
     } catch (err) {
-      set({ aiBusy: false, aiMessages: [...get().aiMessages, { role: "assistant", text: `Fehler: ${(err as Error).message}` }] });
+      set({ aiBusy: false, aiProgress: undefined });
+      say(`Fehler: ${(err as Error).message}`);
     }
   },
+
 }));
 
 /** Open AI questions become open points of the process description. */
 function clarifications(review?: ai.ReviewReport): string[] {
   return (review?.ambiguities ?? []).map((a) => `Klären: ${a.question}${a.options?.length ? ` (${a.options.join(" / ")})` : ""}`);
+}
+
+/** Colour new/changed elements while an AI change is shown as preview (markers are not saved). */
+function highlight(m: Modeler, ids: string[], cls: string): void {
+  const canvas = m.get<any>("canvas");
+  const registry = m.get<any>("elementRegistry");
+  for (const id of ids) if (registry.get(id)) canvas.addMarker(id, cls);
+}
+
+function unhighlight(m: Modeler, ids: string[]): void {
+  const canvas = m.get<any>("canvas");
+  const registry = m.get<any>("elementRegistry");
+  for (const id of ids) {
+    if (!registry.get(id)) continue;
+    canvas.removeMarker(id, "ai-added");
+    canvas.removeMarker(id, "ai-changed");
+  }
 }

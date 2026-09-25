@@ -30,8 +30,8 @@ Ordered by impact on real modeling work.
 ## AI
 10. ~~**Streaming LLM extraction** + accept/reject preview~~ — done (edge
     function + Graph IR). Next: an **eval set of real process texts** to measure
-    generation quality, and **LLM-based instruction updates** (send the current
-    Graph IR + instruction, get a new Graph IR back).
+    generation quality. ~~LLM-based instruction updates~~ — done (edit mode with
+    id preservation, stable arrangement, highlighted preview).
 11. **Grounded provenance highlighting** — hover an element to highlight the
     source sentence, and vice-versa.
 12. **Clarification dialog** — when ambiguities are detected, ask the user the

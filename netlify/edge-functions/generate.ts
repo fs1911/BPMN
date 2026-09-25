@@ -1,8 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { GRAPH_IR_SCHEMA, GRAPH_SYSTEM_PROMPT } from "../../src/core/ai/graph-schema.ts";
+import { GRAPH_EDIT_PROMPT, GRAPH_IR_SCHEMA, GRAPH_SYSTEM_PROMPT } from "../../src/core/ai/graph-schema.ts";
 
 /**
- * Server-side LLM endpoint: POST /api/generate  { text }  →  NDJSON stream.
+ * Server-side LLM endpoint, NDJSON stream:
+ *   POST /api/generate  { text }                                   → new process
+ *   POST /api/generate  { mode: "edit", graph, instruction }       → edited process
  *
  * Runs as a Netlify *edge* function because generation with thinking can take
  * well over the 10 s limit of regular functions; edge functions only need to
@@ -20,13 +22,21 @@ declare const Netlify: { env: { get(key: string): string | undefined } };
 
 const MODEL = "claude-opus-5";
 const MAX_INPUT_CHARS = 12_000;
+const MAX_INSTRUCTION_CHARS = 2_000;
+const MAX_GRAPH_CHARS = 120_000;
 
 export default async (req: Request): Promise<Response> => {
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
 
   let text = "";
+  let edit: { instruction: string; graph: string } | undefined;
   try {
-    text = String(((await req.json()) as { text?: unknown }).text ?? "").trim();
+    const body = (await req.json()) as { text?: unknown; mode?: unknown; instruction?: unknown; graph?: unknown };
+    if (body.mode === "edit") {
+      edit = { instruction: String(body.instruction ?? "").trim(), graph: JSON.stringify(body.graph ?? null) };
+    } else {
+      text = String(body.text ?? "").trim();
+    }
   } catch {
     /* handled below */
   }
@@ -42,9 +52,25 @@ export default async (req: Request): Promise<Response> => {
 
       const apiKey = Netlify.env.get("ANTHROPIC_API_KEY");
       if (!apiKey) return fail("no_key", "Auf dem Server ist kein ANTHROPIC_API_KEY hinterlegt.");
-      if (!text) return fail("bad_input", "Bitte einen Prozesstext eingeben.");
-      if (text.length > MAX_INPUT_CHARS) {
-        return fail("bad_input", `Text zu lang (${text.length} Zeichen, maximal ${MAX_INPUT_CHARS}).`);
+      let system: string;
+      let content: string;
+      if (edit) {
+        if (!edit.instruction) return fail("bad_input", "Bitte eine Änderungsanweisung eingeben.");
+        if (edit.instruction.length > MAX_INSTRUCTION_CHARS) {
+          return fail("bad_input", `Anweisung zu lang (maximal ${MAX_INSTRUCTION_CHARS} Zeichen).`);
+        }
+        if (edit.graph === "null" || edit.graph.length > MAX_GRAPH_CHARS) {
+          return fail("bad_input", "Das aktuelle Diagramm fehlt oder ist zu groß für eine KI-Änderung.");
+        }
+        system = GRAPH_EDIT_PROMPT;
+        content = `<current_process>\n${edit.graph}\n</current_process>\n<instruction>\n${edit.instruction}\n</instruction>`;
+      } else {
+        if (!text) return fail("bad_input", "Bitte einen Prozesstext eingeben.");
+        if (text.length > MAX_INPUT_CHARS) {
+          return fail("bad_input", `Text zu lang (${text.length} Zeichen, maximal ${MAX_INPUT_CHARS}).`);
+        }
+        system = GRAPH_SYSTEM_PROMPT;
+        content = `<process_description>\n${text}\n</process_description>`;
       }
 
       let phase: "thinking" | "writing" = "thinking";
@@ -62,8 +88,8 @@ export default async (req: Request): Promise<Response> => {
           fallbacks: "default",
           thinking: { type: "adaptive" },
           output_config: { effort: "medium", format: { type: "json_schema", schema: GRAPH_IR_SCHEMA } },
-          system: GRAPH_SYSTEM_PROMPT,
-          messages: [{ role: "user", content: `<process_description>\n${text}\n</process_description>` }],
+          system,
+          messages: [{ role: "user", content }],
         });
 
         for await (const event of stream) {

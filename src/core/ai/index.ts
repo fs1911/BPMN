@@ -18,8 +18,10 @@ export {
   sanitizeGraphIR,
 } from "./graph";
 export type { GraphIR, GraphNodeIR, GraphFlowIR } from "./graph";
-export { generateViaLlm, LlmUnavailableError } from "./remote";
-export type { LlmProgress, GenerationResultGraph } from "./remote";
+export { editViaLlm, generateViaLlm, LlmUnavailableError } from "./remote";
+export type { EditResult, LlmCallOptions, LlmProgress, GenerationResultGraph } from "./remote";
+export { applyEditedGraph, diffGraphs, modelToGraphIR } from "./edit";
+export type { GraphDiff } from "./edit";
 
 export interface GenerationResult {
   model: BpmnModel;

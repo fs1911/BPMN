@@ -35,6 +35,8 @@ export interface SanitizeResult {
 const NODE_TYPE_SET = new Set<string>(GRAPH_NODE_TYPES);
 const EVENT_SET = new Set<string>(GRAPH_EVENT_KINDS);
 
+/** Ids end up as XML ids in the BPMN file: make them valid NCNames. */
+const xmlId = (id: string): string => (!id ? "" : /^[A-Za-z_][\w.-]*$/.test(id) ? id : `id_${id.replace(/[^\w.-]/g, "_")}`);
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
 const strArr = (v: unknown): string[] => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
 
@@ -51,7 +53,7 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
   const lanes: GraphIR["lanes"] = [];
   const laneIds = new Set<string>();
   for (const l of Array.isArray(r.lanes) ? r.lanes : []) {
-    const id = str((l as any)?.id);
+    const id = xmlId(str((l as any)?.id));
     const name = str((l as any)?.name);
     if (!id || !name || laneIds.has(id)) continue;
     laneIds.add(id);
@@ -62,7 +64,7 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
   const nodeIds = new Set<string>();
   for (const n of Array.isArray(r.nodes) ? r.nodes : []) {
     const o = (n ?? {}) as Record<string, unknown>;
-    const id = str(o.id);
+    const id = xmlId(str(o.id));
     if (!id || nodeIds.has(id)) {
       repairs.push(`Knoten mit fehlender/doppelter ID „${id}“ verworfen.`);
       continue;
@@ -72,7 +74,7 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
       repairs.push(`Unbekannter Elementtyp „${type}“ bei „${str(o.name) || id}“ als Aufgabe modelliert.`);
       type = "task";
     }
-    const lane = laneIds.has(str(o.lane)) ? str(o.lane) : "";
+    const lane = laneIds.has(xmlId(str(o.lane))) ? xmlId(str(o.lane)) : "";
     const event = EVENT_SET.has(str(o.event)) ? (str(o.event) as GraphEventKind) : "none";
     nodeIds.add(id);
     nodes.push({ id, type: type as GraphNodeType, name: str(o.name), lane, event, source: str(o.source) });
@@ -82,8 +84,8 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
   const seen = new Set<string>();
   for (const f of Array.isArray(r.flows) ? r.flows : []) {
     const o = (f ?? {}) as Record<string, unknown>;
-    const from = str(o.from);
-    const to = str(o.to);
+    const from = xmlId(str(o.from));
+    const to = xmlId(str(o.to));
     if (!nodeIds.has(from) || !nodeIds.has(to)) {
       repairs.push(`Fluss ${from || "?"} → ${to || "?"} verweist auf ein unbekanntes Element und wurde entfernt.`);
       continue;
@@ -151,14 +153,32 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
 const EVENT_TYPES = new Set<GraphNodeType>(["startEvent", "endEvent", "intermediateCatchEvent", "intermediateThrowEvent"]);
 
 /** Map a sanitized GraphIR to a laid-out BpmnModel plus a review report. */
-export function mapGraphToModel(ir: GraphIR, opts: { sourceText?: string; repairs?: string[] } = {}): MappingResult {
-  const model: BpmnModel = emptyModel({ processId: "Process_ai", name: ir.title || undefined });
+export interface MapGraphOptions {
+  sourceText?: string;
+  repairs?: string[];
+  /** use the IR ids as element ids (editing an existing diagram keeps its ids). */
+  keepIds?: boolean;
+  processId?: string;
+  participantName?: string;
+  /** previous vertical position per element id: keeps the arrangement stable across edits. */
+  preferOrder?: Record<string, number>;
+  /** hook to add elements the IR does not carry (e.g. boundary events) before layout. */
+  beforeLayout?: (model: BpmnModel) => void;
+}
+
+export function mapGraphToModel(ir: GraphIR, opts: MapGraphOptions = {}): MappingResult {
+  const model: BpmnModel = emptyModel({ processId: opts.processId ?? "Process_ai", name: ir.title || undefined });
   const provenance: Record<string, string> = {};
 
   const laneMap: Record<string, string> = {};
   if (ir.lanes.length) {
-    createParticipant(model, { name: ir.title || (ir.lang === "de" ? "Prozess" : "Process"), processRef: model.rootProcessId });
-    for (const l of ir.lanes) laneMap[l.id] = createLane(model, { name: l.name, parent: model.rootProcessId }).id;
+    createParticipant(model, {
+      name: opts.participantName ?? (ir.title || (ir.lang === "de" ? "Prozess" : "Process")),
+      processRef: model.rootProcessId,
+    });
+    for (const l of ir.lanes) {
+      laneMap[l.id] = createLane(model, { id: opts.keepIds ? l.id : undefined, name: l.name, parent: model.rootProcessId }).id;
+    }
   }
 
   const idMap: Record<string, string> = {};
@@ -166,6 +186,7 @@ export function mapGraphToModel(ir: GraphIR, opts: { sourceText?: string; repair
     const eventDefinition: EventDefinitionType | undefined =
       EVENT_TYPES.has(n.type) && n.event !== "none" ? n.event : undefined;
     const node = createNode(model, n.type, {
+      id: opts.keepIds ? n.id : undefined,
       name: n.name || undefined,
       eventDefinition,
       lane: laneMap[n.lane],
@@ -198,7 +219,8 @@ export function mapGraphToModel(ir: GraphIR, opts: { sourceText?: string; repair
     removeEmptyLanes(model);
   }
 
-  autoLayout(model, model.rootProcessId);
+  opts.beforeLayout?.(model);
+  autoLayout(model, model.rootProcessId, opts.preferOrder ? { layout: { preferOrder: opts.preferOrder } } : {});
 
   const assessment = assessModel(model, { sourceText: opts.sourceText, ambiguities: ir.ambiguities.length });
   const decisions = ir.nodes

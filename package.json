@@ -14,7 +14,8 @@
     "smoke": "node scripts/smoke.mjs",
     "smoke:llm": "node scripts/smoke-llm.mjs",
     "bench:layout": "vite-node scripts/bench-layout.ts",
-    "smoke:pdf": "node scripts/smoke-pdf.mjs"
+    "smoke:pdf": "node scripts/smoke-pdf.mjs",
+    "smoke:edit": "node scripts/smoke-edit.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

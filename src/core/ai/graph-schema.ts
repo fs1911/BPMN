@@ -24,6 +24,9 @@ export const GRAPH_NODE_TYPES = [
   "sendTask",
   "receiveTask",
   "businessRuleTask",
+  "scriptTask",
+  "subProcess",
+  "callActivity",
   "exclusiveGateway",
   "parallelGateway",
   "inclusiveGateway",
@@ -132,9 +135,8 @@ export const GRAPH_IR_SCHEMA = {
   },
 } as const;
 
-export const GRAPH_SYSTEM_PROMPT = `You turn business process descriptions (SOPs, emails, meeting notes, free prose) into a BPMN 2.0 process graph. Your output is rendered as a diagram that a process owner reviews, so it must be faithful to the text and readable.
-
-Faithfulness
+/** Modelling rules shared by generation and editing. */
+const GRAPH_RULES = `Faithfulness
 - Model only what the text states or clearly implies. Do not invent activities, approvals or systems.
 - Structural elements the text implies but does not name (start/end events, join gateways, an end event for a path that just stops) are fine.
 - Anything you had to decide without support from the text goes into "assumptions". Anything the reader must clarify goes into "ambiguities" (with concrete answer options where possible).
@@ -159,5 +161,25 @@ Lanes and types
 - Automated steps done by an IT system use serviceTask; put them in a lane named "System" (or the system's name) only if there are such steps. Human work is userTask (or manualTask for physical work like packing/shipping); sending a message to an external party is sendTask.
 - If the text names no actors at all, return an empty "lanes" array and "" as each node's lane.
 
-Ids: short and unique ("n1", "n2", …; lanes "l1", …). "lang" is the language of the input ("de" or "en"); all names, conditions, assumptions and questions are in that language.`;
+"lang" is the language of the input ("de" or "en"); all names, conditions, assumptions and questions are in that language.`;
 
+export const GRAPH_SYSTEM_PROMPT = `You turn business process descriptions (SOPs, emails, meeting notes, free prose) into a BPMN 2.0 process graph. Your output is rendered as a diagram that a process owner reviews, so it must be faithful to the text and readable.
+
+${GRAPH_RULES}
+
+Ids: short and unique ("n1", "n2", …; lanes "l1", …).`;
+
+export const GRAPH_EDIT_PROMPT = `You change an existing BPMN 2.0 process graph according to an instruction from its owner. You receive the current process as JSON inside <current_process> and the instruction inside <instruction>. Your output replaces the diagram after the owner reviews it.
+
+Editing
+- Return the COMPLETE updated process (all lanes, nodes and flows), not only the changes.
+- Make the smallest change that fulfils the instruction. Everything the instruction does not ask to change stays exactly as it is: same id, name, type, lane, event and source.
+- Never renumber or reuse ids. New elements get new ids that do not occur in the current process ("new1", "new2", …).
+- Keep the process valid after the change: reconnect flows around removed elements, give new decisions all their branches, keep every path ending in an end event.
+- "source": keep the existing value for existing elements; for new elements quote the relevant words of the instruction.
+- "assumptions" and "ambiguities" describe only this change. If the instruction cannot be applied or is unclear, return the process unchanged and explain why in "ambiguities".
+- Keep "title" and "lang" unless the instruction asks otherwise.
+
+Apply the same modelling rules as when the process was created:
+
+${GRAPH_RULES}`;

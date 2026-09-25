@@ -46,6 +46,12 @@ export interface LayoutOptions {
   marginY: number;
   /** which lane a long cross-lane flow runs in: its source's or its target's. */
   longEdgeLane: "source" | "target";
+  /**
+   * Previous vertical position per element id. Used as the first starting
+   * order of crossing reduction; on ties it wins, so an edited diagram keeps
+   * its arrangement unless a different order has fewer crossings.
+   */
+  preferOrder?: Record<string, number>;
 }
 
 export const DEFAULT_LAYOUT: LayoutOptions = {
@@ -178,11 +184,19 @@ function initialOrder(items: Record<string, Item>, ladj: Adjacency, nodeIds: str
  * Crossing reduction is a local search; run it from several starting orders
  * (DFS, reversed DFS, seeded shuffles) and keep the best result.
  */
-function orderRanksMultiStart(L: Layered, nodeIds: string[], laneIdx: (id: string) => number, sweeps: number): void {
-  const starts: string[][][] = [
+function orderRanksMultiStart(
+  L: Layered,
+  nodeIds: string[],
+  laneIdx: (id: string) => number,
+  sweeps: number,
+  preferOrder?: Record<string, number>,
+): void {
+  const starts: string[][][] = [];
+  if (preferOrder) starts.push(preferredOrder(L, laneIdx, preferOrder));
+  starts.push(
     initialOrder(L.items, L.adj, nodeIds, false),
     initialOrder(L.items, L.adj, nodeIds, true),
-  ];
+  );
   let seed = 7;
   const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
   const shuffles = Object.keys(L.items).length > 250 ? 1 : Object.keys(L.items).length > 120 ? 3 : 6;
@@ -282,6 +296,22 @@ function transpose(L: Layered, laneIdx: (id: string) => number): void {
     }
     if (!improved) break;
   }
+}
+
+/** Ranks sorted by the previous positions; new items/dummies take their neighbours' mean. */
+function preferredOrder(L: Layered, laneIdx: (id: string) => number, prefer: Record<string, number>): string[][] {
+  const key: Record<string, number> = {};
+  for (const id of Object.keys(L.items)) if (prefer[id] !== undefined) key[id] = prefer[id];
+  for (let pass = 0; pass < 4; pass++) {
+    for (const id of Object.keys(L.items)) {
+      if (key[id] !== undefined) continue;
+      const ns = [...(L.adj.incoming[id] ?? []).map((e) => e.source), ...(L.adj.outgoing[id] ?? []).map((e) => e.target)]
+        .map((n) => key[n])
+        .filter((k): k is number => k !== undefined);
+      if (ns.length) key[id] = ns.reduce((a, b) => a + b, 0) / ns.length;
+    }
+  }
+  return L.ranks.map((rk) => [...rk].sort((a, b) => laneIdx(a) - laneIdx(b) || (key[a] ?? 0) - (key[b] ?? 0)));
 }
 
 /**
@@ -785,7 +815,7 @@ export function layoutScope(model: BpmnModel, scope: string, options: Partial<La
   const laneIndex: Record<string, number> = Object.fromEntries(lanes.map((l, i) => [l, i]));
 
   const L = buildLayered(model, layoutNodes, filteredAdj, backEdges, rank, laneOf, opts.longEdgeLane);
-  orderRanksMultiStart(L, layoutNodes, (id) => laneIndex[L.items[id].lane], opts.sweeps);
+  orderRanksMultiStart(L, layoutNodes, (id) => laneIndex[L.items[id].lane], opts.sweeps, opts.preferOrder);
 
   const loopsPerLane: Record<string, number> = {};
   for (const id of backEdges) {

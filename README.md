@@ -34,17 +34,27 @@ this README stay in English.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 67 engine tests (vitest, headless), incl. layout stress + optimality
+npm test           # 73 engine tests (vitest, headless), incl. layout stress + optimality
 npm run bench:layout  # layout quality metrics on the benchmark corpus
 npm run build      # type-check + production bundle
 npm run typecheck  # strict tsc, no emit
 ```
 
-### LLM generation (Claude)
+### LLM modelling (Claude)
 
-Text → BPMN runs through Claude when the server has an API key, and falls back
-to the offline rule-based parser otherwise (the chat and the review panel say
-which one produced the diagram).
+Both **text → BPMN** and **changing an existing diagram by instruction**
+(„Nach der Prüfung eine Freigabe durch die Teamleitung einfügen“) run through
+Claude when the server has an API key. The LLM produces the complete process
+model — elements, types, gateways, conditions, flows, loops, lanes; the layout
+engine places it (LLMs are unreliable at geometry). For edits the LLM receives
+the whole current diagram with its element ids and returns the full updated
+model; unchanged elements keep their ids, documentation texts, boundary events
+and — where it costs no extra crossings — their arrangement. New elements are
+highlighted green, changed ones orange, as a preview to accept or reject.
+Elements the AI format cannot represent (data objects, annotations, other
+pools, sub-process contents) are reported before you accept.
+Without a key both fall back to the offline rule-based parser, and the chat
+says so.
 
 - **Netlify:** set `ANTHROPIC_API_KEY` under *Site configuration → Environment
   variables* and redeploy. The key lives only in the edge function
@@ -194,7 +204,7 @@ docs/                   # architecture notes + screenshots
 
 ## 4–5. Implementation & tests
 
-See `src/` and `test/`. Run `npm test` — 67 tests cover BPMN import/export,
+See `src/` and `test/`. Run `npm test` — 73 tests cover BPMN import/export,
 routing around obstacles, gateway branch fanning, back-edge channels, lane
 placement, layout determinism, undo/redo, validation rules, bilingual
 text-to-BPMN extraction (EN + DE), and instruction-based updates (approval, lane
@@ -248,8 +258,8 @@ provenance (every element traces to source text), ambiguity surfacing.
   role-prefixed/“if…otherwise” business processes (its target domain) and
   surfaces ambiguity rather than inventing logic. It fails on free-form prose;
   that is what the Claude path is for.
-- Instruction-based updates (*Anweisung anwenden*) are still rule-based; only
-  text → BPMN generation uses Claude so far.
+- AI edits drop data objects, annotations, other pools and sub-process
+  contents (reported in the preview; *Verwerfen* restores the diagram).
 - The LLM path has been verified end-to-end only against a mocked API (Deno +
   browser); output quality on real process texts still needs a test set.
 - A\* routing is tuned for diagrams up to a few hundred nodes; beyond that the

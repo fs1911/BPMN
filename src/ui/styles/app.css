@@ -200,3 +200,7 @@ html[data-theme="dark"] .bjs-properties { color: #1c2530; background: #fff; }
 .step-doc { margin-top: 3px; padding-left: 6px; border-left: 2px solid var(--accent-soft); }
 .tabs { gap: 4px; }
 .tabs button { white-space: nowrap; padding-left: 4px; padding-right: 4px; font-size: 12px; min-width: 0; }
+
+/* AI edit preview: new / changed elements */
+.djs-element.ai-added .djs-visual > :first-child { stroke: #16a34a !important; stroke-width: 3px !important; fill: #ecfdf3 !important; }
+.djs-element.ai-changed .djs-visual > :first-child { stroke: #d97706 !important; stroke-width: 3px !important; fill: #fff7ed !important; }

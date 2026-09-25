@@ -99,6 +99,16 @@ are expressible. `graph.ts` sanitizes it (unknown ids/types, dangling paths,
 missing start/end; every repair is recorded) and maps it to a BpmnModel. The
 LLM only emits JSON; it never writes BPMN or touches the canvas.
 
+**AI editing.** `edit.ts` converts the current diagram to Graph IR with its
+real element ids (`modelToGraphIR`); the edge function sends it with the
+instruction under a separate edit prompt (same modelling rules, "smallest
+change, keep ids"); `applyEditedGraph` maps the returned IR with those ids,
+carries over what the IR does not hold (documentation, markers, boundary
+events and their flows) and passes the previous vertical positions to the
+layout as its first crossing-reduction start (`preferOrder`) — ties keep the
+old arrangement. `diffGraphs` yields added/changed/removed ids for the preview
+highlight and the chat summary.
+
 **Offline path (fallback).** `extract.ts` (rule-based NL → step-list IR) →
 `map.ts`. The step-list IR can only express a linear main path whose branches
 loop back or end, which is why it is not used as the LLM contract.
