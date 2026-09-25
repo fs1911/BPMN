@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -b --noEmit",
     "smoke": "node scripts/smoke.mjs",
-    "smoke:llm": "node scripts/smoke-llm.mjs"
+    "smoke:llm": "node scripts/smoke-llm.mjs",
+    "bench:layout": "vite-node scripts/bench-layout.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

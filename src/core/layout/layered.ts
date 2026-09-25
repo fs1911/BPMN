@@ -1,28 +1,41 @@
 import {
   Adjacency,
   BpmnModel,
+  Edge,
   FlowNode,
+  Point,
   buildAdjacency,
   detectBackEdges,
   topoOrder,
 } from "../model";
 
 /**
- * Layered (Sugiyama-style) left-to-right layout tuned for BPMN.
+ * Layered (Sugiyama) left-to-right layout with integrated orthogonal routing,
+ * tuned for BPMN.
  *
- * Why custom instead of bpmn-auto-layout: bpmn-auto-layout walks the flow and
- * places elements greedily; it produces acceptable trees but degrades badly on
- * graphs with joins, parallel branches that re-merge, and loops. Our pass does
- * proper rank assignment (longest path ignoring back edges), crossing-reduction
- * via the weighted-median heuristic, and barycenter coordinate assignment with
- * hard overlap resolution. Back edges are excluded from ranking so a loop never
- * drags its target into a later column — the dominant left-to-right reading
- * direction is preserved and the back edge is left for the router to fold
- * cleanly underneath the main path.
+ * Pipeline:
+ *  1. Ranks by longest path over forward edges (back edges removed), so loops
+ *     never drag their target into a later column.
+ *  2. Long edges get one *dummy* per rank they skip. Dummies reserve a slot in
+ *     every column the edge passes, so long flows never run through shapes and
+ *     take part in crossing reduction like real nodes.
+ *  3. Crossing reduction (weighted median sweeps + transpose), constrained to
+ *     keep every node inside its swimlane.
+ *  4. Y assignment inside lane bands (median pulls, overlap resolution,
+ *     chain straightening → straight main flow and straight long edges).
+ *  5. Port assignment: activities use left/right sides (fanned when shared);
+ *     gateways and events use their real corners — a split sends its outer
+ *     branches out of the top/bottom corner, a join takes them in the same way.
+ *  6. Every vertical segment between two columns gets its own track in that
+ *     corridor; tracks are ordered to minimise crossings and the corridor is
+ *     widened to fit them. No two flows share a track.
+ *
+ * Forward flows are routed here exactly; back edges (loops) are left to the
+ * A* router, which routes them around everything already placed.
  */
 
 export interface LayoutOptions {
-  /** horizontal gap between rank columns. */
+  /** minimum horizontal gap between rank columns (grows with the number of tracks). */
   rankSep: number;
   /** vertical gap between nodes within a column. */
   nodeSep: number;
@@ -31,14 +44,17 @@ export interface LayoutOptions {
   /** left/top margin inside the scope. */
   marginX: number;
   marginY: number;
+  /** which lane a long cross-lane flow runs in: its source's or its target's. */
+  longEdgeLane: "source" | "target";
 }
 
 export const DEFAULT_LAYOUT: LayoutOptions = {
-  rankSep: 110, // wider columns leave clean vertical routing corridors
-  nodeSep: 55,
-  sweeps: 8,
+  rankSep: 64,
+  nodeSep: 50,
+  sweeps: 12,
   marginX: 60,
   marginY: 60,
+  longEdgeLane: "source",
 };
 
 export interface LayoutResult {
@@ -46,17 +62,44 @@ export interface LayoutResult {
   rankOf: Record<string, number>;
   orderInRank: Record<string, number>;
   backEdgeIds: Set<string>;
+  /** edges whose waypoints were produced by the layout (forward flows). */
+  routed: Set<string>;
 }
 
-/** Assign ranks by longest path over forward edges (back edges removed). */
-function assignRanks(
-  order: string[],
-  adj: Adjacency,
-  backEdges: Set<string>,
-): Record<string, number> {
+/** Spacing constants. */
+const DUMMY_H = 8;
+const DUMMY_SEP = 22;
+const LANE_PAD = 26;
+const LOOP_CHANNEL = 30;
+const TRACK_GAP = 16;
+const POOL_GUTTER = 30;
+const LANE_INSET = 40; // horizontal room between lane border and first/last column
+const NO_LANE = "__nolane__";
+
+interface Item {
+  id: string;
+  dummy: boolean;
+  lane: string;
+  rank: number;
+  w: number;
+  h: number;
+  y: number; // center
+}
+
+interface Layered {
+  items: Record<string, Item>;
+  ranks: string[][];
+  adj: Adjacency;
+  /** original edge id → [source, dummies…, target] */
+  chains: Record<string, string[]>;
+}
+
+// ---------------------------------------------------------------------------
+// Ranking
+
+function assignRanks(order: string[], adj: Adjacency, backEdges: Set<string>): Record<string, number> {
   const rank: Record<string, number> = {};
   for (const id of order) rank[id] = 0;
-  // Process in topo order so all forward predecessors are finalized first.
   for (const id of order) {
     for (const e of adj.incoming[id] ?? []) {
       if (backEdges.has(e.id)) continue;
@@ -66,188 +109,628 @@ function assignRanks(
   return rank;
 }
 
-function groupByRank(rank: Record<string, number>): string[][] {
-  const max = Math.max(0, ...Object.values(rank));
-  const ranks: string[][] = Array.from({ length: max + 1 }, () => []);
-  for (const id of Object.keys(rank)) ranks[rank[id]].push(id);
-  return ranks;
-}
-
-/** Weighted-median crossing reduction (down + up sweeps). */
-function reduceCrossings(
-  ranks: string[][],
+function buildLayered(
+  model: BpmnModel,
+  nodeIds: string[],
   adj: Adjacency,
   backEdges: Set<string>,
-  sweeps: number,
-): Record<string, number> {
-  const pos: Record<string, number> = {};
-  ranks.forEach((rk) => rk.forEach((id, i) => (pos[id] = i)));
-
-  const neighborMedian = (id: string, dir: "in" | "out"): number => {
-    const edges = (dir === "in" ? adj.incoming[id] : adj.outgoing[id]) ?? [];
-    const ps = edges
-      .filter((e) => !backEdges.has(e.id))
-      .map((e) => pos[dir === "in" ? e.source : e.target])
-      .filter((p) => p !== undefined)
-      .sort((a, b) => a - b);
-    if (ps.length === 0) return -1;
-    const m = Math.floor(ps.length / 2);
-    return ps.length % 2 ? ps[m] : (ps[m - 1] + ps[m]) / 2;
+  rank: Record<string, number>,
+  laneOf: (id: string) => string,
+  longEdgeLane: "source" | "target",
+): Layered {
+  const items: Record<string, Item> = {};
+  for (const id of nodeIds) {
+    const b = model.nodes[id].bounds;
+    items[id] = { id, dummy: false, lane: laneOf(id), rank: rank[id], w: b.width, h: b.height, y: 0 };
+  }
+  const ladj: Adjacency = { outgoing: {}, incoming: {} };
+  for (const id of nodeIds) (ladj.outgoing[id] = []), (ladj.incoming[id] = []);
+  const link = (id: string, s: string, t: string) => {
+    const e = { id, type: "sequenceFlow", source: s, target: t } as Edge;
+    ladj.outgoing[s].push(e);
+    ladj.incoming[t].push(e);
   };
 
-  for (let s = 0; s < sweeps; s++) {
-    const down = s % 2 === 0;
-    const seq = down ? [...ranks.keys()] : [...ranks.keys()].reverse();
-    for (const r of seq) {
-      const dir = down ? "in" : "out";
-      const withMed = ranks[r].map((id) => ({ id, med: neighborMedian(id, dir) }));
-      // Keep elements with no neighbors (med = -1) fixed in place.
-      const fixed = withMed.filter((w) => w.med < 0);
-      const movable = withMed.filter((w) => w.med >= 0).sort((a, b) => a.med - b.med);
-      const merged: string[] = [];
-      let mi = 0;
-      withMed.forEach((w, i) => {
-        if (w.med < 0) merged[i] = w.id;
-      });
-      for (let i = 0; i < merged.length || mi < movable.length; i++) {
-        if (merged[i] !== undefined) continue;
-        if (mi < movable.length) merged[i] = movable[mi++].id;
+  const chains: Record<string, string[]> = {};
+  for (const id of nodeIds) {
+    for (const e of adj.outgoing[id] ?? []) {
+      if (backEdges.has(e.id) || !items[e.target]) continue;
+      const rs = rank[e.source];
+      const rt = rank[e.target];
+      const chain = [e.source];
+      for (let r = rs + 1; r < rt; r++) {
+        const did = `__dummy_${e.id}_${r}`;
+        const lane = longEdgeLane === "target" ? items[e.target].lane : items[e.source].lane;
+        items[did] = { id: did, dummy: true, lane, rank: r, w: 0, h: DUMMY_H, y: 0 };
+        ladj.outgoing[did] = [];
+        ladj.incoming[did] = [];
+        chain.push(did);
       }
-      ranks[r] = merged.filter((x) => x !== undefined);
-      ranks[r].forEach((id, i) => (pos[id] = i));
-      void fixed;
+      chain.push(e.target);
+      for (let i = 0; i < chain.length - 1; i++) link(`${e.id}#${i}`, chain[i], chain[i + 1]);
+      chains[e.id] = chain;
     }
   }
 
-  // Transpose: greedily swap adjacent nodes within a rank while it reduces the
-  // crossings with the neighbouring ranks. This is the classic Sugiyama refine
-  // step that removes the crossings the median heuristic leaves behind.
-  for (let pass = 0; pass < 4; pass++) {
+  return { items, ranks: initialOrder(items, ladj, nodeIds, false), adj: ladj, chains };
+}
+
+/** Initial order: DFS from the roots so a branch's nodes start out together. */
+function initialOrder(items: Record<string, Item>, ladj: Adjacency, nodeIds: string[], reverse: boolean): string[][] {
+  const maxRank = Math.max(0, ...Object.values(items).map((it) => it.rank));
+  const ranks: string[][] = Array.from({ length: maxRank + 1 }, () => []);
+  const seen = new Set<string>();
+  const visit = (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    ranks[items[id].rank].push(id);
+    const outs = [...(ladj.outgoing[id] ?? [])];
+    if (reverse) outs.reverse();
+    for (const e of outs) visit(e.target);
+  };
+  const roots = nodeIds.filter((id) => !(ladj.incoming[id] ?? []).length);
+  for (const r of roots) visit(r);
+  for (const id of Object.keys(items)) visit(id);
+  return ranks;
+}
+
+/**
+ * Crossing reduction is a local search; run it from several starting orders
+ * (DFS, reversed DFS, seeded shuffles) and keep the best result.
+ */
+function orderRanksMultiStart(L: Layered, nodeIds: string[], laneIdx: (id: string) => number, sweeps: number): void {
+  const starts: string[][][] = [
+    initialOrder(L.items, L.adj, nodeIds, false),
+    initialOrder(L.items, L.adj, nodeIds, true),
+  ];
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  for (let k = 0; k < 6; k++) {
+    starts.push(
+      starts[0].map((rk) => {
+        const a = [...rk];
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = Math.floor(rnd() * (i + 1));
+          [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+      }),
+    );
+  }
+  let best: string[][] | undefined;
+  let bestC = Infinity;
+  for (const start of starts) {
+    L.ranks = start;
+    orderRanks(L, laneIdx, sweeps);
+    let c = 0;
+    for (let r = 0; r < L.ranks.length - 1; r++) c += layerCrossings(L.ranks[r], L.ranks[r + 1], L.adj);
+    if (c < bestC) {
+      bestC = c;
+      best = L.ranks.map((rk) => [...rk]);
+    }
+    if (bestC === 0) break;
+  }
+  L.ranks = best!;
+}
+
+// ---------------------------------------------------------------------------
+// Crossing reduction (lane-constrained)
+
+function orderRanks(L: Layered, laneIdx: (id: string) => number, sweeps: number): void {
+  const pos: Record<string, number> = {};
+  const reindex = () => L.ranks.forEach((rk) => rk.forEach((id, i) => (pos[id] = i)));
+  for (const rk of L.ranks) rk.sort((a, b) => laneIdx(a) - laneIdx(b));
+  reindex();
+
+  const median = (id: string, dir: "in" | "out"): number => {
+    const es = (dir === "in" ? L.adj.incoming[id] : L.adj.outgoing[id]) ?? [];
+    const ps = es.map((e) => pos[dir === "in" ? e.source : e.target]).sort((a, b) => a - b);
+    if (!ps.length) return -1;
+    const m = ps.length >> 1;
+    return ps.length % 2 ? ps[m] : (ps[m - 1] + ps[m]) / 2;
+  };
+
+  const totalCrossings = () => {
+    let c = 0;
+    for (let r = 0; r < L.ranks.length - 1; r++) c += layerCrossings(L.ranks[r], L.ranks[r + 1], L.adj);
+    return c;
+  };
+
+  let best = L.ranks.map((rk) => [...rk]);
+  let bestC = totalCrossings();
+  for (let s = 0; s < sweeps; s++) {
+    const down = s % 2 === 0;
+    const seq = down ? [...L.ranks.keys()].slice(1) : [...L.ranks.keys()].reverse().slice(1);
+    for (const r of seq) {
+      const keyed = L.ranks[r].map((id) => {
+        const m = median(id, down ? "in" : "out");
+        return { id, key: laneIdx(id) * 1e6 + (m >= 0 ? m : pos[id]) };
+      });
+      keyed.sort((a, b) => a.key - b.key);
+      L.ranks[r] = keyed.map((k) => k.id);
+      L.ranks[r].forEach((id, i) => (pos[id] = i));
+    }
+    transpose(L, laneIdx);
+    reindex();
+    const c = totalCrossings();
+    if (c < bestC) {
+      bestC = c;
+      best = L.ranks.map((rk) => [...rk]);
+    }
+  }
+  L.ranks = best;
+}
+
+/** Swap adjacent same-lane items while that reduces crossings. */
+function transpose(L: Layered, laneIdx: (id: string) => number): void {
+  for (let pass = 0; pass < 6; pass++) {
     let improved = false;
-    for (let r = 0; r < ranks.length; r++) {
-      const rank = ranks[r];
+    for (let r = 0; r < L.ranks.length; r++) {
+      const rank = L.ranks[r];
       for (let i = 0; i < rank.length - 1; i++) {
-        const before =
-          (r > 0 ? layerCrossings(ranks[r - 1], rank, adj, backEdges, "down") : 0) +
-          (r < ranks.length - 1 ? layerCrossings(rank, ranks[r + 1], adj, backEdges, "down") : 0);
+        if (laneIdx(rank[i]) !== laneIdx(rank[i + 1])) continue;
+        const local = () =>
+          (r > 0 ? layerCrossings(L.ranks[r - 1], rank, L.adj) : 0) +
+          (r < L.ranks.length - 1 ? layerCrossings(rank, L.ranks[r + 1], L.adj) : 0);
+        const before = local();
         [rank[i], rank[i + 1]] = [rank[i + 1], rank[i]];
-        const after =
-          (r > 0 ? layerCrossings(ranks[r - 1], rank, adj, backEdges, "down") : 0) +
-          (r < ranks.length - 1 ? layerCrossings(rank, ranks[r + 1], adj, backEdges, "down") : 0);
-        if (after < before) improved = true;
-        else [rank[i], rank[i + 1]] = [rank[i + 1], rank[i]]; // revert
+        if (local() < before) improved = true;
+        else [rank[i], rank[i + 1]] = [rank[i + 1], rank[i]];
       }
     }
     if (!improved) break;
   }
-  ranks.forEach((rk) => rk.forEach((id, i) => (pos[id] = i)));
-  return pos;
 }
 
-/** Crossings between two adjacent layers given their current order. */
-function layerCrossings(
-  upper: string[],
-  lower: string[],
-  adj: Adjacency,
-  backEdges: Set<string>,
-  _dir: "down",
-): number {
+/** Crossings between the edges of two adjacent layers. */
+function layerCrossings(upper: string[], lower: string[], adj: Adjacency): number {
   const posU: Record<string, number> = {};
   upper.forEach((id, i) => (posU[id] = i));
   const seq: number[] = [];
   for (const v of lower) {
     const ups = (adj.incoming[v] ?? [])
-      .filter((e) => !backEdges.has(e.id))
       .map((e) => posU[e.source])
       .filter((p) => p !== undefined)
       .sort((a, b) => a - b);
     seq.push(...ups);
   }
-  // count inversions = crossings
   let c = 0;
-  for (let i = 0; i < seq.length; i++) {
-    for (let j = i + 1; j < seq.length; j++) {
-      if (seq[i] > seq[j]) c++;
-    }
-  }
+  for (let i = 0; i < seq.length; i++) for (let j = i + 1; j < seq.length; j++) if (seq[i] > seq[j]) c++;
   return c;
 }
 
-/** Barycenter y-coordinate assignment with overlap resolution. */
-function assignCoordinates(
-  model: BpmnModel,
-  ranks: string[][],
-  adj: Adjacency,
-  backEdges: Set<string>,
-  opts: LayoutOptions,
-): void {
-  // Column x positions from max width per rank.
-  const colWidth = ranks.map((rk) =>
-    rk.length ? Math.max(...rk.map((id) => model.nodes[id].bounds.width)) : 0,
-  );
-  const colX: number[] = [];
-  let x = opts.marginX;
-  for (let r = 0; r < ranks.length; r++) {
-    colX[r] = x + colWidth[r] / 2; // center line of the column
-    x += colWidth[r] + opts.rankSep;
+// ---------------------------------------------------------------------------
+// Y assignment
+
+interface Bands {
+  laneTop: Record<string, number>;
+  laneHeight: Record<string, number>;
+  /** vertical range available for nodes (excludes padding + loop reserve). */
+  area: Record<string, [number, number]>;
+}
+
+const sep = (a: Item, b: Item, nodeSep: number) => (a.dummy || b.dummy ? DUMMY_SEP : nodeSep);
+
+function stackHeight(list: Item[], nodeSep: number): number {
+  let h = 0;
+  list.forEach((it, i) => (h += it.h + (i ? sep(list[i - 1], it, nodeSep) : 0)));
+  return h;
+}
+
+function assignY(L: Layered, lanes: string[], loopsPerLane: Record<string, number>, opts: LayoutOptions): Bands {
+  const groups = (r: number, lane: string) => L.ranks[r].map((id) => L.items[id]).filter((it) => it.lane === lane);
+
+  const laneTop: Record<string, number> = {};
+  const laneHeight: Record<string, number> = {};
+  const area: Record<string, [number, number]> = {};
+  let cy = opts.marginY;
+  for (const lane of lanes) {
+    let content = 70;
+    for (let r = 0; r < L.ranks.length; r++) content = Math.max(content, stackHeight(groups(r, lane), opts.nodeSep));
+    const reserve = loopsPerLane[lane] ? loopsPerLane[lane] * LOOP_CHANNEL + 8 : 0;
+    laneTop[lane] = cy;
+    laneHeight[lane] = content + 2 * LANE_PAD + reserve;
+    area[lane] = [cy + LANE_PAD, cy + LANE_PAD + content];
+    cy += laneHeight[lane];
   }
 
-  // Initial y from order index.
-  const y: Record<string, number> = {};
-  for (const rk of ranks) {
-    let cy = opts.marginY;
-    for (const id of rk) {
-      const h = model.nodes[id].bounds.height;
-      y[id] = cy + h / 2;
-      cy += h + opts.nodeSep;
+  // Initial: each (rank, lane) group centred in its lane's area.
+  for (let r = 0; r < L.ranks.length; r++) {
+    for (const lane of lanes) {
+      const g = groups(r, lane);
+      const [lo, hi] = area[lane];
+      let y = (lo + hi) / 2 - stackHeight(g, opts.nodeSep) / 2;
+      g.forEach((it, i) => {
+        if (i) y += sep(g[i - 1], it, opts.nodeSep);
+        it.y = y + it.h / 2;
+        y += it.h;
+      });
     }
   }
 
-  const rankOf: Record<string, number> = {};
-  ranks.forEach((rk, r) => rk.forEach((id) => (rankOf[id] = r)));
+  const sameLaneNeighbours = (it: Item) =>
+    [...(L.adj.incoming[it.id] ?? []).map((e) => e.source), ...(L.adj.outgoing[it.id] ?? []).map((e) => e.target)]
+      .map((id) => L.items[id])
+      .filter((n) => n.lane === it.lane);
 
-  // Iterate: pull each node toward the median of its neighbours (robust to a
-  // single outlier neighbour — e.g. a join should centre on its branches, not be
-  // dragged off by one downstream node), then resolve overlaps within the rank.
-  // More passes => better convergence => straighter edges, fewer crossings.
-  for (let iter = 0; iter < 24; iter++) {
-    const seq = iter % 2 === 0 ? [...ranks.keys()] : [...ranks.keys()].reverse();
+  for (let iter = 0; iter < 16; iter++) {
+    const seq = iter % 2 === 0 ? [...L.ranks.keys()] : [...L.ranks.keys()].reverse();
     for (const r of seq) {
-      for (const id of ranks[r]) {
-        const edges = [...(adj.incoming[id] ?? []), ...(adj.outgoing[id] ?? [])].filter(
-          (e) => !backEdges.has(e.id),
-        );
-        const ns = edges.map((e) => (e.source === id ? e.target : e.source));
-        if (ns.length) y[id] = median(ns.map((n) => y[n]));
+      for (const id of L.ranks[r]) {
+        const it = L.items[id];
+        const ns = sameLaneNeighbours(it);
+        if (ns.length) it.y = median(ns.map((n) => n.y));
       }
-      resolveOverlap(ranks[r], model, y, opts.nodeSep);
+      for (const lane of lanes) packGroup(groups(r, lane), area[lane], opts.nodeSep);
     }
   }
 
-  straightenChains(ranks, adj, backEdges, model, y, opts.nodeSep);
-
-  // Commit positions: x = column center - width/2; y already center.
-  for (let r = 0; r < ranks.length; r++) {
-    for (const id of ranks[r]) {
-      const n = model.nodes[id];
-      n.bounds.x = Math.round(colX[r] - n.bounds.width / 2);
-      n.bounds.y = Math.round(y[id] - n.bounds.height / 2);
+  // Straighten: an item with exactly one same-lane predecessor snaps onto its
+  // line if the slot is free. Turns the main flow and long edges into straight runs.
+  for (let pass = 0; pass < 4; pass++) {
+    for (let r = 1; r < L.ranks.length; r++) {
+      for (const lane of lanes) {
+        const g = groups(r, lane);
+        g.forEach((it, i) => {
+          const ins = (L.adj.incoming[it.id] ?? []).map((e) => L.items[e.source]).filter((p) => p.lane === lane);
+          const outs = (L.adj.outgoing[it.id] ?? []).map((e) => L.items[e.target]).filter((p) => p.lane === lane);
+          const anchor = ins.length === 1 ? ins[0] : ins.length === 0 && outs.length === 1 ? outs[0] : undefined;
+          if (!anchor) return;
+          const target = anchor.y;
+          const prev = g[i - 1];
+          const next = g[i + 1];
+          const lo = Math.max(area[lane][0] + it.h / 2, prev ? prev.y + prev.h / 2 + sep(prev, it, opts.nodeSep) + it.h / 2 : -Infinity);
+          const hi = Math.min(area[lane][1] - it.h / 2, next ? next.y - next.h / 2 - sep(it, next, opts.nodeSep) - it.h / 2 : Infinity);
+          if (target >= lo - 0.5 && target <= hi + 0.5) it.y = target;
+        });
+      }
     }
   }
+
+  for (const it of Object.values(L.items)) it.y = Math.round(it.y);
+  return { laneTop, laneHeight, area };
+}
+
+/** Keep a group's order, enforce spacing, and keep it inside [lo, hi]. */
+function packGroup(g: Item[], [lo, hi]: [number, number], nodeSep: number): void {
+  if (!g.length) return;
+  g[0].y = Math.max(g[0].y, lo + g[0].h / 2);
+  for (let i = 1; i < g.length; i++) {
+    const min = g[i - 1].y + g[i - 1].h / 2 + sep(g[i - 1], g[i], nodeSep) + g[i].h / 2;
+    if (g[i].y < min) g[i].y = min;
+  }
+  const last = g[g.length - 1];
+  if (last.y + last.h / 2 > hi) last.y = hi - last.h / 2;
+  for (let i = g.length - 2; i >= 0; i--) {
+    const max = g[i + 1].y - g[i + 1].h / 2 - sep(g[i], g[i + 1], nodeSep) - g[i].h / 2;
+    if (g[i].y > max) g[i].y = max;
+  }
+}
+
+function median(xs: number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+// ---------------------------------------------------------------------------
+// Ports + corridor tracks
+
+type Side = "left" | "right" | "top" | "bottom";
+type XRef = { node: string; at: "left" | "right" | "cx" } | { corridor: number; seg: number };
+interface RoutePt {
+  x: XRef;
+  y: number;
+}
+interface CorridorSeg {
+  edge: string;
+  y1: number; // y of the horizontal arriving from the left
+  y2: number; // y of the horizontal leaving to the right
+  x?: number;
+}
+
+function kindOf(n: FlowNode): "gateway" | "event" | "activity" {
+  if (n.type.endsWith("Gateway")) return "gateway";
+  if (n.type.endsWith("Event")) return "event";
+  return "activity";
+}
+
+function planRoutes(model: BpmnModel, L: Layered) {
+  const items = L.items;
+  const exits: Record<string, { side: Side; y: number }> = {};
+  const entries: Record<string, { side: Side; y: number }> = {};
+  const edgeIds = Object.keys(L.chains);
+
+  /** Is the node's own column free between its border and y (for corner routes)? */
+  const columnFree = (nodeId: string, y: number): boolean => {
+    const it = items[nodeId];
+    const top = it.y - it.h / 2;
+    const bottom = it.y + it.h / 2;
+    const [a, b] = y < it.y ? [y - 10, top] : [bottom, y + 10];
+    return L.ranks[it.rank].every((id) => {
+      if (id === nodeId) return true;
+      const o = items[id];
+      return o.y + o.h / 2 + 6 < a || o.y - o.h / 2 - 6 > b;
+    });
+  };
+
+  const fan = (n: number, i: number) => (n <= 1 ? 0.5 : 0.25 + (0.5 * i) / (n - 1));
+
+  // Exits.
+  const outsOf: Record<string, string[]> = {};
+  for (const id of edgeIds) (outsOf[L.chains[id][0]] ||= []).push(id);
+  for (const [nid, outs] of Object.entries(outsOf)) {
+    const it = items[nid];
+    const node = model.nodes[nid];
+    const nextY = (e: string) => items[L.chains[e][1]].y;
+    outs.sort((a, b) => nextY(a) - nextY(b) || a.localeCompare(b));
+    if (kindOf(node) === "activity") {
+      outs.forEach((e, i) => (exits[e] = { side: "right", y: Math.round(it.y - it.h / 2 + it.h * fan(outs.length, i)) }));
+      continue;
+    }
+    for (const e of outs) exits[e] = { side: "right", y: it.y };
+    if (outs.length >= 2) {
+      const first = outs[0];
+      const last = outs[outs.length - 1];
+      if (nextY(first) < it.y - it.h / 2 - 10 && columnFree(nid, nextY(first))) exits[first] = { side: "top", y: nextY(first) };
+      if (nextY(last) > it.y + it.h / 2 + 10 && columnFree(nid, nextY(last))) exits[last] = { side: "bottom", y: nextY(last) };
+    }
+  }
+
+  // Entries.
+  const insOf: Record<string, string[]> = {};
+  for (const id of edgeIds) (insOf[L.chains[id][L.chains[id].length - 1]] ||= []).push(id);
+  const cornerExit = (e: string) => L.chains[e].length === 2 && exits[e].side !== "right";
+  const prevY = (e: string) => {
+    const c = L.chains[e];
+    return c.length > 2 ? items[c[c.length - 2]].y : exits[e].side === "right" ? exits[e].y : items[c[0]].y;
+  };
+  for (const [nid, ins] of Object.entries(insOf)) {
+    const it = items[nid];
+    const node = model.nodes[nid];
+    ins.sort((a, b) => prevY(a) - prevY(b) || a.localeCompare(b));
+    if (kindOf(node) === "activity") {
+      ins.forEach((e, i) => (entries[e] = { side: "left", y: Math.round(it.y - it.h / 2 + it.h * fan(ins.length, i)) }));
+      continue;
+    }
+    for (const e of ins) entries[e] = { side: "left", y: it.y };
+    if (ins.length >= 2) {
+      const first = ins[0];
+      const last = ins[ins.length - 1];
+      if (!cornerExit(first) && prevY(first) < it.y - it.h / 2 - 10 && columnFree(nid, prevY(first))) entries[first] = { side: "top", y: prevY(first) };
+      if (!cornerExit(last) && prevY(last) > it.y + it.h / 2 + 10 && columnFree(nid, prevY(last))) entries[last] = { side: "bottom", y: prevY(last) };
+    }
+  }
+  // A corner exit straight into a node must arrive at that node's entry y.
+  for (const e of edgeIds) {
+    if (cornerExit(e)) exits[e].y = entries[e].y;
+  }
+
+  // Abstract routes + corridor segments.
+  const corridors: CorridorSeg[][] = Array.from({ length: L.ranks.length }, () => []);
+  const routes: Record<string, RoutePt[]> = {};
+  for (const e of edgeIds) {
+    const chain = L.chains[e];
+    const src = chain[0];
+    const tgt = chain[chain.length - 1];
+    const ex = exits[e];
+    const en = entries[e];
+    const pts: RoutePt[] = [];
+    let runY: number;
+    if (ex.side === "right") {
+      pts.push({ x: { node: src, at: "right" }, y: ex.y });
+      runY = ex.y;
+    } else {
+      const it = items[src];
+      pts.push({ x: { node: src, at: "cx" }, y: ex.side === "top" ? it.y - it.h / 2 : it.y + it.h / 2 });
+      runY = ex.y;
+      pts.push({ x: { node: src, at: "cx" }, y: runY });
+    }
+    for (let i = 0; i < chain.length - 1; i++) {
+      const last = i + 1 === chain.length - 1;
+      const nextY = last ? (en.side === "left" ? en.y : runY) : items[chain[i + 1]].y;
+      if (nextY !== runY) {
+        const r = items[chain[i]].rank;
+        const seg: CorridorSeg = { edge: e, y1: runY, y2: nextY };
+        corridors[r].push(seg);
+        const idx = corridors[r].length - 1;
+        pts.push({ x: { corridor: r, seg: idx }, y: runY }, { x: { corridor: r, seg: idx }, y: nextY });
+        runY = nextY;
+      }
+    }
+    if (en.side === "left") {
+      pts.push({ x: { node: tgt, at: "left" }, y: en.y });
+    } else {
+      const it = items[tgt];
+      pts.push({ x: { node: tgt, at: "cx" }, y: runY }, { x: { node: tgt, at: "cx" }, y: en.side === "top" ? it.y - it.h / 2 : it.y + it.h / 2 });
+    }
+    routes[e] = pts;
+  }
+
+  for (const segs of corridors) orderTracks(segs);
+  return { routes, corridors, exits, entries };
+}
+
+/**
+ * Order the vertical segments of one corridor left→right to minimise crossings.
+ * Segment A left of B: A's outgoing horizontal (y2) crosses B's vertical if y2
+ * lies inside B's span; B's incoming horizontal (y1) crosses A's vertical if y1
+ * lies inside A's span.
+ */
+function orderTracks(segs: CorridorSeg[]): void {
+  if (segs.length < 2) {
+    segs.forEach((s) => (s.x = 0));
+    return;
+  }
+  const inside = (y: number, s: CorridorSeg) => y > Math.min(s.y1, s.y2) + 0.5 && y < Math.max(s.y1, s.y2) - 0.5;
+  const cost = (a: CorridorSeg, b: CorridorSeg) => (inside(a.y2, b) ? 1 : 0) + (inside(b.y1, a) ? 1 : 0);
+  const order: CorridorSeg[] = [];
+  for (const s of segs) {
+    let bestI = 0;
+    let bestC = Infinity;
+    for (let i = 0; i <= order.length; i++) {
+      let c = 0;
+      for (let j = 0; j < order.length; j++) c += j < i ? cost(order[j], s) : cost(s, order[j]);
+      if (c < bestC) (bestC = c), (bestI = i);
+    }
+    order.splice(bestI, 0, s);
+  }
+  for (let pass = 0; pass < 4; pass++) {
+    let improved = false;
+    for (let i = 0; i < order.length - 1; i++) {
+      if (cost(order[i + 1], order[i]) < cost(order[i], order[i + 1])) {
+        [order[i], order[i + 1]] = [order[i + 1], order[i]];
+        improved = true;
+      }
+    }
+    if (!improved) break;
+  }
+  order.forEach((s, i) => (s.x = i)); // track index; converted to px later
+}
+
+// ---------------------------------------------------------------------------
+// Main entry
+
+export function layoutScope(model: BpmnModel, scope: string, options: Partial<LayoutOptions> = {}): LayoutResult {
+  const opts = { ...DEFAULT_LAYOUT, ...options };
+  const adj = buildAdjacency(model, { scope, types: ["sequenceFlow"] });
+
+  const layoutNodes = Object.keys(adj.outgoing).filter((id) => {
+    const n = model.nodes[id];
+    return n && n.type !== "boundaryEvent" && n.type !== "textAnnotation";
+  });
+  const inLayout = new Set(layoutNodes);
+  const filteredAdj: Adjacency = { outgoing: {}, incoming: {} };
+  for (const id of layoutNodes) {
+    filteredAdj.outgoing[id] = (adj.outgoing[id] ?? []).filter((e) => inLayout.has(e.target));
+    filteredAdj.incoming[id] = (adj.incoming[id] ?? []).filter((e) => inLayout.has(e.source));
+  }
+
+  const backEdges = detectBackEdges(filteredAdj);
+  for (const e of Object.values(model.edges)) {
+    if (e.type === "sequenceFlow") e.isBackEdge = backEdges.has(e.id);
+  }
+  const order = topoOrder(filteredAdj, backEdges);
+  const rank = assignRanks(order, filteredAdj, backEdges);
+
+  const proc = model.processes[scope];
+  const laneIds = proc && proc.lanes.length ? [...proc.lanes] : [];
+  const laneByNode: Record<string, string> = {};
+  for (const lid of laneIds) for (const nid of model.lanes[lid].flowNodeRefs) laneByNode[nid] = lid;
+  const lanes = laneIds.length ? laneIds : [NO_LANE];
+  const laneOf = (id: string) => laneByNode[id] ?? lanes[0];
+  const laneIndex: Record<string, number> = Object.fromEntries(lanes.map((l, i) => [l, i]));
+
+  const L = buildLayered(model, layoutNodes, filteredAdj, backEdges, rank, laneOf, opts.longEdgeLane);
+  orderRanksMultiStart(L, layoutNodes, (id) => laneIndex[L.items[id].lane], opts.sweeps);
+
+  const loopsPerLane: Record<string, number> = {};
+  for (const id of backEdges) {
+    const e = model.edges[id];
+    if (e) loopsPerLane[laneOf(e.source)] = (loopsPerLane[laneOf(e.source)] ?? 0) + 1;
+  }
+  const bands = assignY(L, lanes, loopsPerLane, opts);
+  const plan = planRoutes(model, L);
+
+  // X: column widths from real nodes, corridor widths from the number of tracks.
+  const nR = L.ranks.length;
+  const colW = L.ranks.map((rk) => Math.max(0, ...rk.map((id) => L.items[id].w)));
+  // Corridors must also fit the condition labels of flows leaving a node to the right.
+  const labelRoom: number[] = new Array(nR).fill(0);
+  for (const [eid, ex] of Object.entries(plan.exits)) {
+    const name = model.edges[eid].name;
+    if (!name || ex.side !== "right") continue;
+    const r = L.items[L.chains[eid][0]].rank;
+    labelRoom[r] = Math.max(labelRoom[r], Math.min(100, Math.max(40, name.length * 6.2)) + 24);
+  }
+  const corridorW = plan.corridors.map((segs, r) => Math.max(opts.rankSep, (segs.length + 1) * TRACK_GAP, labelRoom[r]));
+  const colX: number[] = [];
+  const inset = laneIds.length ? POOL_GUTTER + LANE_INSET : 0;
+  let x = opts.marginX + inset;
+  for (let r = 0; r < nR; r++) {
+    colX[r] = x + colW[r] / 2;
+    x += colW[r] + (r < nR - 1 ? corridorW[r] : 0);
+  }
+  const contentRight = x;
+  plan.corridors.forEach((segs, r) => {
+    if (r >= nR - 1) return;
+    const start = colX[r] + colW[r] / 2;
+    const n = segs.length;
+    for (const s of segs) s.x = Math.round(start + ((s.x! + 1) * corridorW[r]) / (n + 1));
+  });
+
+  // Commit node positions.
+  for (const id of layoutNodes) {
+    const it = L.items[id];
+    const n = model.nodes[id];
+    n.bounds.x = Math.round(colX[it.rank] - n.bounds.width / 2);
+    n.bounds.y = Math.round(it.y - n.bounds.height / 2);
+  }
+
+  // Materialize forward routes.
+  const resolveX = (ref: XRef): number => {
+    if ("corridor" in ref) return plan.corridors[ref.corridor][ref.seg].x!;
+    const b = model.nodes[ref.node].bounds;
+    return ref.at === "left" ? b.x : ref.at === "right" ? b.x + b.width : b.x + b.width / 2;
+  };
+  const routed = new Set<string>();
+  for (const [eid, pts] of Object.entries(plan.routes)) {
+    const wps: Point[] = pts.map((p) => ({ x: resolveX(p.x), y: p.y }));
+    model.edges[eid].waypoints = dedupe(wps);
+    routed.add(eid);
+  }
+
+  // Lanes and pool.
+  if (laneIds.length) {
+    const laneX = opts.marginX + POOL_GUTTER;
+    const laneW = contentRight + LANE_INSET - laneX;
+    for (const lid of laneIds) {
+      model.lanes[lid].bounds = { x: laneX, y: bands.laneTop[lid], width: laneW, height: bands.laneHeight[lid] };
+    }
+    const participant = Object.values(model.participants).find((p) => p.processRef === scope);
+    if (participant) {
+      const top = bands.laneTop[laneIds[0]];
+      const last = laneIds[laneIds.length - 1];
+      participant.bounds = {
+        x: opts.marginX,
+        y: top,
+        width: laneW + POOL_GUTTER,
+        height: bands.laneTop[last] + bands.laneHeight[last] - top,
+      };
+    }
+  }
+
+  placeBoundaryEvents(model, scope);
+
+  const orderInRank: Record<string, number> = {};
+  L.ranks.forEach((rk) => rk.filter((id) => !L.items[id].dummy).forEach((id, i) => (orderInRank[id] = i)));
+  return { scope, rankOf: rank, orderInRank, backEdgeIds: backEdges, routed };
+}
+
+function dedupe(pts: Point[]): Point[] {
+  const out: Point[] = [];
+  for (const p of pts) {
+    const q = out[out.length - 1];
+    if (q && q.x === p.x && q.y === p.y) continue;
+    // drop the middle of three collinear points
+    const o = out[out.length - 2];
+    if (o && q && ((o.x === q.x && q.x === p.x) || (o.y === q.y && q.y === p.y))) out.pop();
+    out.push(p);
+  }
+  return out;
 }
 
 /**
  * Size task-like activities so their label fits inside the box (bpmn-js wraps
- * text but clips overflow). Prevents the squished/cut-off labels that make
- * AI-generated diagrams look unfinished. Events/gateways keep fixed sizes
- * (their labels render externally).
+ * text but clips overflow). Events/gateways keep fixed sizes (their labels
+ * render externally).
  */
 export function fitLabelSizes(model: BpmnModel, scope: string): void {
   for (const n of Object.values(model.nodes)) {
     if (n.parent !== scope) continue;
     const taskLike = n.type === "task" || n.type.endsWith("Task") || n.type === "callActivity";
     if (!taskLike || !n.name) continue;
-    const charsPerLine = 16; // ~width 100 at 12px
+    const charsPerLine = 16;
     const longestWord = Math.max(...n.name.split(/\s+/).map((w) => w.length), 1);
     const width = Math.max(110, Math.min(170, longestWord * 7.2));
     const cpl = Math.max(charsPerLine, Math.floor((width - 16) / 6.6));
@@ -258,279 +741,9 @@ export function fitLabelSizes(model: BpmnModel, scope: string): void {
   }
 }
 
-/**
- * Straighten chains: align a node that has exactly one forward predecessor to
- * that predecessor's centre, when doing so does not collide with its rank
- * siblings (and, in lanes, stays inside the band). Turns the dominant flow into
- * straight horizontal runs — the Signavio look.
- */
-function straightenChains(
-  ranks: string[][],
-  adj: Adjacency,
-  backEdges: Set<string>,
-  model: BpmnModel,
-  y: Record<string, number>,
-  nodeSep: number,
-  clamp?: (id: string, v: number) => number,
-): void {
-  for (let pass = 0; pass < 3; pass++) {
-    for (let r = 1; r < ranks.length; r++) {
-      const rank = ranks[r];
-      const order = [...rank].sort((a, b) => y[a] - y[b]);
-      const idx: Record<string, number> = {};
-      order.forEach((id, i) => (idx[id] = i));
-      for (const id of rank) {
-        const ins = (adj.incoming[id] ?? []).filter((e) => !backEdges.has(e.id));
-        if (ins.length !== 1) continue;
-        let target = y[ins[0].source];
-        if (clamp) target = clamp(id, target);
-        const h = model.nodes[id].bounds.height;
-        const i = idx[id];
-        const prev = order[i - 1];
-        const next = order[i + 1];
-        const lo = prev ? y[prev] + model.nodes[prev].bounds.height / 2 + nodeSep + h / 2 : -Infinity;
-        const hi = next ? y[next] - model.nodes[next].bounds.height / 2 - nodeSep - h / 2 : Infinity;
-        if (target >= lo && target <= hi) y[id] = target;
-      }
-    }
-  }
-}
-
-function median(xs: number[]): number {
-  if (!xs.length) return 0;
-  const s = [...xs].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
-
-/** Push apart nodes in a rank so vertical gaps respect nodeSep, keeping order. */
-function resolveOverlap(
-  rank: string[],
-  model: BpmnModel,
-  y: Record<string, number>,
-  nodeSep: number,
-): void {
-  const sorted = [...rank].sort((a, b) => y[a] - y[b]);
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = model.nodes[sorted[i - 1]];
-    const cur = model.nodes[sorted[i]];
-    const minCenter = y[sorted[i - 1]] + prev.bounds.height / 2 + nodeSep + cur.bounds.height / 2;
-    if (y[sorted[i]] < minCenter) y[sorted[i]] = minCenter;
-  }
-}
-
-/**
- * Run the layered layout for a scope. Mutates node bounds in place and returns
- * rank/order metadata used by the router and relayout features.
- */
-export function layoutScope(
-  model: BpmnModel,
-  scope: string,
-  options: Partial<LayoutOptions> = {},
-): LayoutResult {
-  const opts = { ...DEFAULT_LAYOUT, ...options };
-  const adj = buildAdjacency(model, { scope, types: ["sequenceFlow"] });
-
-  // Boundary events are not part of the flow graph; lay them out on hosts after.
-  const layoutNodes = Object.keys(adj.outgoing).filter((id) => {
-    const n = model.nodes[id];
-    return n && n.type !== "boundaryEvent" && n.type !== "textAnnotation";
-  });
-  const filteredAdj: Adjacency = { outgoing: {}, incoming: {} };
-  for (const id of layoutNodes) {
-    filteredAdj.outgoing[id] = (adj.outgoing[id] ?? []).filter((e) =>
-      layoutNodes.includes(e.target),
-    );
-    filteredAdj.incoming[id] = (adj.incoming[id] ?? []).filter((e) =>
-      layoutNodes.includes(e.source),
-    );
-  }
-
-  const backEdges = detectBackEdges(filteredAdj);
-  for (const e of Object.values(model.edges)) {
-    if (e.type === "sequenceFlow") e.isBackEdge = backEdges.has(e.id);
-  }
-  const order = topoOrder(filteredAdj, backEdges);
-  const rank = assignRanks(order, filteredAdj, backEdges);
-  const ranks = groupByRank(rank);
-  reduceCrossings(ranks, filteredAdj, backEdges, opts.sweeps);
-
-  const proc = model.processes[scope];
-  const hasLanes = !!proc && proc.lanes.length > 0;
-
-  if (hasLanes) {
-    layoutWithLanes(model, scope, ranks, filteredAdj, backEdges, opts);
-  } else {
-    assignCoordinates(model, ranks, filteredAdj, backEdges, opts);
-  }
-
-  placeBoundaryEvents(model, scope);
-
-  const orderInRank: Record<string, number> = {};
-  ranks.forEach((rk) => rk.forEach((id, i) => (orderInRank[id] = i)));
-  return { scope, rankOf: rank, orderInRank, backEdgeIds: backEdges };
-}
-
-/**
- * Lane-aware placement: keep the global rank (x) but stack nodes inside their
- * lane's vertical band. Lanes are sized to fit their busiest column so swimlane
- * bands never overlap and each role reads as a clean horizontal track.
- */
-function layoutWithLanes(
-  model: BpmnModel,
-  scope: string,
-  ranks: string[][],
-  adj: Adjacency,
-  backEdges: Set<string>,
-  opts: LayoutOptions,
-): void {
-  const proc = model.processes[scope];
-  const laneIds = proc.lanes;
-  const laneOf: Record<string, string> = {};
-  for (const lid of laneIds) {
-    for (const nid of model.lanes[lid].flowNodeRefs) laneOf[nid] = lid;
-  }
-
-  const colWidth = ranks.map((rk) =>
-    rk.length ? Math.max(...rk.map((id) => model.nodes[id].bounds.width)) : 0,
-  );
-  const colX: number[] = [];
-  let x = opts.marginX;
-  for (let r = 0; r < ranks.length; r++) {
-    colX[r] = x + colWidth[r] / 2;
-    x += colWidth[r] + opts.rankSep;
-  }
-  const totalWidth = x - opts.rankSep + opts.marginX;
-
-  // Compute each lane's required height: max over ranks of the stacked height
-  // of that lane's nodes in that rank.
-  const LANE_PAD = 16; // vertical inner padding inside a lane band
-  const laneHeight: Record<string, number> = {};
-  for (const lid of laneIds) {
-    let maxH = 70;
-    for (const rk of ranks) {
-      const inLane = rk.filter((id) => laneOf[id] === lid);
-      const stack =
-        inLane.reduce((acc, id) => acc + model.nodes[id].bounds.height + opts.nodeSep, 0) -
-        opts.nodeSep;
-      maxH = Math.max(maxH, stack);
-    }
-    // tight padding so a single-element lane is a slim track, not a big band
-    laneHeight[lid] = maxH + LANE_PAD * 2;
-  }
-
-  // Assign lane vertical bands.
-  const laneTop: Record<string, number> = {};
-  let cy = opts.marginY;
-  for (const lid of laneIds) {
-    laneTop[lid] = cy;
-    cy += laneHeight[lid];
-  }
-
-  // Place nodes: x by rank, y centered within lane band, barycenter-ordered.
-  const yCenter: Record<string, number> = {};
-  for (let r = 0; r < ranks.length; r++) {
-    const byLane: Record<string, string[]> = {};
-    for (const id of ranks[r]) (byLane[laneOf[id]] ||= []).push(id);
-    for (const lid of laneIds) {
-      const group = byLane[lid] ?? [];
-      const bandCenter = laneTop[lid] + laneHeight[lid] / 2;
-      const totalH =
-        group.reduce((acc, id) => acc + model.nodes[id].bounds.height + opts.nodeSep, 0) -
-        opts.nodeSep;
-      let yy = bandCenter - totalH / 2;
-      for (const id of group) {
-        const h = model.nodes[id].bounds.height;
-        yCenter[id] = yy + h / 2;
-        yy += h + opts.nodeSep;
-      }
-    }
-  }
-  // A couple of barycenter passes constrained to lane bands.
-  for (let iter = 0; iter < 4; iter++) {
-    for (let r = 0; r < ranks.length; r++) {
-      for (const id of ranks[r]) {
-        const lid = laneOf[id];
-        const edges = [...(adj.incoming[id] ?? []), ...(adj.outgoing[id] ?? [])].filter(
-          (e) => !backEdges.has(e.id),
-        );
-        const ns = edges.map((e) => (e.source === id ? e.target : e.source)).filter((n) => laneOf[n] === lid);
-        if (ns.length) yCenter[id] = ns.reduce((a, n) => a + yCenter[n], 0) / ns.length;
-        // clamp inside band (small inner pad, consistent with lane height)
-        const half = model.nodes[id].bounds.height / 2;
-        const lo = laneTop[lid] + LANE_PAD + half;
-        const hi = Math.max(lo, laneTop[lid] + laneHeight[lid] - LANE_PAD - half);
-        yCenter[id] = Math.min(hi, Math.max(lo, yCenter[id]));
-      }
-      const byLane: Record<string, string[]> = {};
-      for (const id of ranks[r]) (byLane[laneOf[id]] ||= []).push(id);
-      for (const lid of laneIds) resolveOverlap(byLane[lid] ?? [], model, yCenter, opts.nodeSep);
-    }
-  }
-
-  // Straighten chains within each lane band (keeps the main flow horizontal).
-  const clampToBand = (id: string, v: number): number => {
-    const lid = laneOf[id];
-    const half = model.nodes[id].bounds.height / 2;
-    const lo = laneTop[lid] + LANE_PAD + half;
-    const hi = Math.max(lo, laneTop[lid] + laneHeight[lid] - LANE_PAD - half);
-    return Math.min(hi, Math.max(lo, v));
-  };
-  const sameLaneAdj: Adjacency = { outgoing: {}, incoming: {} };
-  for (const id of Object.keys(adj.outgoing)) {
-    sameLaneAdj.outgoing[id] = (adj.outgoing[id] ?? []).filter((e) => laneOf[e.target] === laneOf[id]);
-    sameLaneAdj.incoming[id] = (adj.incoming[id] ?? []).filter((e) => laneOf[e.source] === laneOf[id]);
-  }
-  straightenChains(ranks, sameLaneAdj, backEdges, model, yCenter, opts.nodeSep, clampToBand);
-
-  for (let r = 0; r < ranks.length; r++) {
-    for (const id of ranks[r]) {
-      const n = model.nodes[id];
-      n.bounds.x = Math.round(colX[r] - n.bounds.width / 2);
-      n.bounds.y = Math.round(yCenter[id] - n.bounds.height / 2);
-    }
-  }
-
-  // Reserve a routing band at the bottom of the pool for back-edge (loop)
-  // channels so loops stay *inside* the pool instead of dangling beneath it.
-  // Visual only — node positions are unchanged, so the forward flow is stable.
-  const nBack = backEdges.size;
-  const loopReserve = nBack > 0 ? nBack * 34 + 28 : 0;
-
-  // Size and position lane shapes. bpmn-js expects a 30px pool label gutter on
-  // the left, with lanes starting at participant.x + 30.
-  const POOL_GUTTER = 30;
-  const laneX = opts.marginX - 30 + POOL_GUTTER;
-  const laneW = totalWidth - (laneX - POOL_GUTTER) + 30 - POOL_GUTTER;
-  laneIds.forEach((lid, i) => {
-    const extra = i === laneIds.length - 1 ? loopReserve : 0;
-    model.lanes[lid].bounds = {
-      x: laneX,
-      y: laneTop[lid],
-      width: laneW,
-      height: laneHeight[lid] + extra,
-    };
-  });
-
-  // If a participant (pool) references this scope, wrap the lanes.
-  const participant = Object.values(model.participants).find((p) => p.processRef === scope);
-  if (participant && laneIds.length) {
-    const firstTop = laneTop[laneIds[0]];
-    const totalH = laneIds.reduce((acc, lid) => acc + laneHeight[lid], 0) + loopReserve;
-    participant.bounds = {
-      x: laneX - POOL_GUTTER,
-      y: firstTop,
-      width: laneW + POOL_GUTTER,
-      height: totalH,
-    };
-  }
-}
-
 /** Place boundary events on the bottom border of their host activity. */
 function placeBoundaryEvents(model: BpmnModel, scope: string): void {
-  const boundaries = Object.values(model.nodes).filter(
-    (n) => n.parent === scope && n.type === "boundaryEvent" && n.attachedToRef,
-  );
+  const boundaries = Object.values(model.nodes).filter((n) => n.parent === scope && n.type === "boundaryEvent" && n.attachedToRef);
   const byHost: Record<string, FlowNode[]> = {};
   for (const b of boundaries) (byHost[b.attachedToRef!] ||= []).push(b);
   for (const [hostId, list] of Object.entries(byHost)) {
@@ -546,10 +759,7 @@ function placeBoundaryEvents(model: BpmnModel, scope: string): void {
 }
 
 /** Compute the bounding box of all laid-out content in a scope. */
-export function contentBounds(
-  model: BpmnModel,
-  scope: string,
-): { x: number; y: number; width: number; height: number } {
+export function contentBounds(model: BpmnModel, scope: string): { x: number; y: number; width: number; height: number } {
   const nodes = Object.values(model.nodes).filter((n) => n.parent === scope);
   if (!nodes.length) return { x: 0, y: 0, width: 0, height: 0 };
   let minX = Infinity,

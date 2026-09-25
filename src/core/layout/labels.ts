@@ -31,8 +31,8 @@ function collides(box: Bounds, obstacles: Bounds[], pad = 2): boolean {
 }
 
 /** Thin bounding boxes for each segment of a routed polyline (as obstacles). */
-function edgeSegmentBoxes(model: BpmnModel): Bounds[] {
-  const boxes: Bounds[] = [];
+function edgeSegmentBoxes(model: BpmnModel): { edge: string; box: Bounds }[] {
+  const boxes: { edge: string; box: Bounds }[] = [];
   for (const e of Object.values(model.edges)) {
     const wps = e.waypoints;
     if (!wps || wps.length < 2) continue;
@@ -40,10 +40,13 @@ function edgeSegmentBoxes(model: BpmnModel): Bounds[] {
       const a = wps[i];
       const b = wps[i + 1];
       boxes.push({
-        x: Math.min(a.x, b.x) - 1,
-        y: Math.min(a.y, b.y) - 1,
-        width: Math.abs(a.x - b.x) + 2,
-        height: Math.abs(a.y - b.y) + 2,
+        edge: e.id,
+        box: {
+          x: Math.min(a.x, b.x) - 1,
+          y: Math.min(a.y, b.y) - 1,
+          width: Math.abs(a.x - b.x) + 2,
+          height: Math.abs(a.y - b.y) + 2,
+        },
       });
     }
   }
@@ -53,9 +56,13 @@ function edgeSegmentBoxes(model: BpmnModel): Bounds[] {
 export function placeLabels(model: BpmnModel, scope: string): void {
   const nodes = Object.values(model.nodes).filter((n) => n.parent === scope);
   const shapeObstacles: Bounds[] = nodes.map((n) => n.bounds);
-  const edgeObstacles = edgeSegmentBoxes(model);
+  const segs = edgeSegmentBoxes(model);
   const placed: Bounds[] = [];
-  const obstacles = () => [...shapeObstacles, ...edgeObstacles, ...placed];
+  const obstacles = (exceptEdge?: string) => [
+    ...shapeObstacles,
+    ...segs.filter((s) => s.edge !== exceptEdge).map((s) => s.box),
+    ...placed,
+  ];
 
   // 1) External node labels.
   for (const n of nodes) {
@@ -67,11 +74,14 @@ export function placeLabels(model: BpmnModel, scope: string): void {
     const cx = n.bounds.x + n.bounds.width / 2;
     const candidates: Bounds[] = [
       { x: cx - w / 2, y: n.bounds.y + n.bounds.height + 4, width: w, height: h }, // below
-      { x: n.bounds.x + n.bounds.width + 6, y: n.bounds.y + n.bounds.height / 2 - h / 2, width: w, height: h }, // right (preferred over above to avoid clipping at the pool top)
       { x: cx - w / 2, y: n.bounds.y - h - 4, width: w, height: h }, // above
+      { x: n.bounds.x + n.bounds.width + 6, y: n.bounds.y + n.bounds.height / 2 - h / 2, width: w, height: h }, // right
       { x: n.bounds.x - w - 6, y: n.bounds.y + n.bounds.height / 2 - h / 2, width: w, height: h }, // left
+      { x: n.bounds.x + n.bounds.width + 4, y: n.bounds.y + n.bounds.height + 2, width: w, height: h }, // below right
+      { x: n.bounds.x - w - 4, y: n.bounds.y + n.bounds.height + 2, width: w, height: h }, // below left
+      { x: n.bounds.x + n.bounds.width + 4, y: n.bounds.y - h - 2, width: w, height: h }, // above right
+      { x: n.bounds.x - w - 4, y: n.bounds.y - h - 2, width: w, height: h }, // above left
     ];
-    // plus downward-shifted fallbacks below the shape
     for (let k = 1; k <= 4; k++) {
       candidates.push({ x: cx - w / 2, y: n.bounds.y + n.bounds.height + 4 + k * 16, width: w, height: h });
     }
@@ -80,30 +90,61 @@ export function placeLabels(model: BpmnModel, scope: string): void {
     placed.push(box);
   }
 
-  // 2) Edge labels.
+  // 2) Edge labels: next to the first segment(s), right after the source —
+  //    where a reader looks for a gateway's branch condition.
   for (const e of Object.values(model.edges)) {
     const wps = e.waypoints;
     if (!e.name || !wps || wps.length < 2) {
       e.labelBounds = undefined;
       continue;
     }
+    const { w, h } = labelSize(e.name);
+    const candidates: Bounds[] = [];
+    for (let i = 0; i < wps.length - 1; i++) {
+      const a = wps[i];
+      const b = wps[i + 1];
+      const len = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+      if (len < 16) continue;
+      if (Math.abs(a.y - b.y) < 1) {
+        const dir = Math.sign(b.x - a.x);
+        const x = dir > 0 ? a.x + 6 : a.x - 6 - w;
+        candidates.push({ x, y: a.y - h - 2, width: w, height: h }, { x, y: a.y + 3, width: w, height: h });
+      } else {
+        const dir = Math.sign(b.y - a.y);
+        const y = dir > 0 ? a.y + 4 : a.y - 4 - h;
+        candidates.push({ x: a.x + 4, y, width: w, height: h }, { x: a.x - w - 4, y, width: w, height: h });
+      }
+    }
+    // Fallback: around the midpoint, increasingly far from the line.
     const mid = wps[Math.floor(wps.length / 2)];
     const prev = wps[Math.floor(wps.length / 2) - 1] ?? wps[0];
     const horizontal = Math.abs(mid.x - prev.x) >= Math.abs(mid.y - prev.y);
-    const { w, h } = labelSize(e.name);
-    const base = { x: mid.x - w / 2, y: mid.y - h / 2 };
-    // offset perpendicular to the segment, both directions, increasing distance
-    const candidates: Bounds[] = [];
-    for (const d of [12, -12, 24, -24, 36, -36]) {
-      candidates.push(
-        horizontal
-          ? { x: base.x, y: base.y + d, width: w, height: h }
-          : { x: base.x + d, y: base.y, width: w, height: h },
-      );
+    const base = { x: (mid.x + prev.x) / 2 - w / 2, y: (mid.y + prev.y) / 2 - h / 2 };
+    for (const d of [h, -h, 2 * h, -2 * h]) {
+      candidates.push(horizontal ? { x: base.x, y: base.y + d, width: w, height: h } : { x: base.x + d + (d > 0 ? w / 2 : -w / 2), y: base.y, width: w, height: h });
     }
-    candidates.push({ ...base, width: w, height: h });
-    const box = candidates.find((c) => !collides(c, obstacles())) ?? candidates[candidates.length - 1];
+    const box = candidates.find((c) => !collides(c, obstacles(e.id))) ?? candidates[0];
     e.labelBounds = box;
     placed.push(box);
   }
+}
+
+/** Number of labels colliding with shapes, other labels or foreign flows. */
+export function countLabelCollisions(model: BpmnModel, scope: string): number {
+  const nodes = Object.values(model.nodes).filter((n) => n.parent === scope);
+  const segs = edgeSegmentBoxes(model);
+  const labels: { owner: string; box: Bounds }[] = [
+    ...nodes.filter((n) => n.labelBounds).map((n) => ({ owner: n.id, box: n.labelBounds! })),
+    ...Object.values(model.edges).filter((e) => e.labelBounds).map((e) => ({ owner: e.id, box: e.labelBounds! })),
+  ];
+  let c = 0;
+  labels.forEach((l, i) => {
+    const others = [
+      ...nodes.filter((n) => n.id !== l.owner).map((n) => n.bounds),
+      ...segs.filter((s) => s.edge !== l.owner).map((s) => s.box),
+      ...labels.filter((_, j) => j !== i).map((o) => o.box),
+    ];
+    if (collides(l.box, others, 0)) c++;
+  });
+  return c;
 }
