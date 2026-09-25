@@ -2,7 +2,7 @@
   "name": "flowcraft-bpmn",
   "private": true,
   "version": "1.0.0",
-  "description": "FlowCraft — a production-grade BPMN 2.0 modeling tool with a custom layout/routing engine and AI-assisted process generation.",
+  "description": "FlowCraft \u2014 a production-grade BPMN 2.0 modeling tool with a custom layout/routing engine and AI-assisted process generation.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,9 +10,12 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:llm": "node scripts/smoke-llm.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@bpmn-io/properties-panel": "^3.46.0",
     "bpmn-js": "^17.11.1",
     "bpmn-js-properties-panel": "^5.60.0",

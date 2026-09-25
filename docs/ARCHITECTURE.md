@@ -3,24 +3,24 @@
 ## Data flow
 
 ```
-            ┌─────────────── UI (React + SVG) ───────────────┐
-            │  Canvas · Palette · Toolbar · Panels · AiPanel  │
-            └───────────────┬─────────────────▲──────────────┘
-                            │ actions          │ model + issues + review
-                   ┌────────▼──────────────────┴────────┐
-                   │      zustand store (src/state)      │
-                   │  model · History(undo/redo) · view  │
-                   └────────┬──────────────────▲─────────┘
-                            │ mutate            │ new model
-        ┌───────────────────▼───────────────────┴───────────────────┐
-        │                     src/core (no DOM)                      │
-        │  model ─ graph ─ layout ─ routing ─ validation ─ xml ─ ai  │
-        └────────────────────────────────────────────────────────────┘
+   UI (React + bpmn-js)          Modeler · Toolbar · Panels · AiPanel
+          │ actions ▲ issues + review
+          ▼         │
+   zustand store (src/state) ───── POST /api/generate ─────▶ Netlify edge function
+          │         ▲        ◀──── NDJSON (Graph IR) ──────       └─▶ Claude API
+   saveXML│         │importXML
+          ▼         │
+   src/core (no DOM): model · layout · routing · validation · xml · ai
 ```
 
-Every state mutation produces a new model object (clone-on-write), commits a
-deep-clone snapshot to `History`, then re-validates. Drag operations mutate a
-working clone live and coalesce into one undo step on pointer-up.
+bpmn-js owns the live diagram and its undo stack. Engine operations (AI
+generation, cleanup, validation) read the diagram via `saveXML` → `importBpmn`
+and write back via `exportBpmn` → `importXML`.
+
+Consequence: every engine operation re-imports the whole diagram, which resets
+bpmn-js' undo stack (AI results are guarded by the accept/reject preview; the
+cleanup actions are not) and drops anything the engine's XML model does not
+carry (e.g. vendor extension attributes).
 
 ## Layout (`src/core/layout/layered.ts`)
 
@@ -52,9 +52,25 @@ working clone live and coalesce into one undo step on pointer-up.
 
 ## AI pipeline (`src/core/ai`)
 
-`extract.ts` (NL → IR) → `map.ts` (IR → BPMN, validate, layout, route) with
-`instructions.ts` for in-place updates. The LLM (`llm.ts`) — when configured —
-only emits IR JSON; it never writes BPMN or touches the canvas. The IR records
-`provenance` for every step so the review panel can trace each diagram element
-back to the source text, and lists `assumptions`/`ambiguities` instead of
-inventing process logic.
+**LLM path (primary).** `remote.ts` posts the text to
+`netlify/edge-functions/generate.ts`, which calls Claude with a fixed prompt and
+a JSON schema (`graph-schema.ts`) via structured outputs and streams progress +
+the result back as NDJSON. The result is a *Graph IR* — nodes, flows, lanes —
+so alternative paths with their own activities, parallel split/join and merges
+are expressible. `graph.ts` sanitizes it (unknown ids/types, dangling paths,
+missing start/end; every repair is recorded) and maps it to a BpmnModel. The
+LLM only emits JSON; it never writes BPMN or touches the canvas.
+
+**Offline path (fallback).** `extract.ts` (rule-based NL → step-list IR) →
+`map.ts`. The step-list IR can only express a linear main path whose branches
+loop back or end, which is why it is not used as the LLM contract.
+
+**Quality.** `quality.ts` assesses the *produced diagram* for both paths —
+sentence fragments as names, gateways that don't branch, unlabeled XOR exits,
+unreachable nodes, and mismatches with the text (parallel/conditional cues
+without matching gateways, far fewer activities than sentences). Confidence is
+derived from these findings, which the review panel lists.
+
+`instructions.ts` applies rule-based in-place updates. Every element keeps
+`provenance` (a source quote) and the IR lists `assumptions`/`ambiguities`
+instead of inventing process logic.

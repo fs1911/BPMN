@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type Modeler from "bpmn-js/lib/Modeler";
-import { ValidationIssue, validate } from "@core/index";
+import { BpmnModel, ValidationIssue, validate } from "@core/index";
 import { ai } from "@core/index";
 import {
   cleanupDiagram,
@@ -25,6 +25,8 @@ interface EditorState {
   aiReview?: ai.ReviewReport;
   aiMessages: AiMessage[];
   aiBusy: boolean;
+  /** live status line while the LLM is working. */
+  aiProgress?: string;
   busy: boolean;
   /** an AI suggestion shown as a preview, awaiting accept/reject. */
   pending?: { prevXml: string; description: string };
@@ -150,27 +152,44 @@ export const useEditor = create<EditorState>((set, get) => ({
   generate: async (text) => {
     const m = get().modeler;
     if (!m) return;
-    set({ aiBusy: true, aiMessages: [...get().aiMessages, { role: "user", text }] });
+    set({ aiBusy: true, aiProgress: "KI-Dienst wird kontaktiert…", aiMessages: [...get().aiMessages, { role: "user", text }] });
     try {
       const prevXml = await getXml(m);
-      const { model, review } = ai.generateFromTextSync(text);
+      let result: { model: BpmnModel; review: ai.ReviewReport };
+      let fallbackNote = "";
+      try {
+        result = await ai.generateViaLlm(text, {
+          onProgress: (p) =>
+            set({ aiProgress: p.phase === "thinking" ? "KI analysiert den Text…" : `KI schreibt das Modell… (${p.chars ?? 0} Zeichen)` }),
+        });
+      } catch (err) {
+        // Offline / no key / API failure: fall back to the rule-based extractor, but say so.
+        result = ai.generateFromTextSync(text);
+        fallbackNote =
+          (err instanceof ai.LlmUnavailableError ? `${(err as Error).message} ` : `KI-Fehler: ${(err as Error).message} `) +
+          "Stattdessen wurde der regelbasierte Offline-Parser verwendet – er versteht nur einfache Schrittlisten zuverlässig.\n";
+      }
+      const { model, review } = result;
       await loadModelIntoModeler(m, model);
       await get().revalidate();
+      const findings = review.findings?.length ? `\n⚠ ${review.findings.length} Qualitätshinweis(e) – siehe Überprüfung.` : "";
       set({
         aiReview: review,
         aiBusy: false,
+        aiProgress: undefined,
         pending: { prevXml, description: `Generierter Entwurf: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.loops.length} Schleife(n).` },
         aiMessages: [
           ...get().aiMessages,
           {
             role: "assistant",
-            text: `${Object.keys(model.nodes).length} Elemente generiert, ${review.roles.length} Rolle(n), ${review.decisions.length} Entscheidung(en), ${review.loops.length} Schleife(n). Konfidenz ${(review.confidence * 100).toFixed(0)} %. Vorschau – bitte übernehmen oder verwerfen.`,
+            text: `${fallbackNote}${review.source === "llm" ? "KI-Modell" : "Regel-Parser"}: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.decisions.length} Entscheidung(en), ${review.loops.length} Schleife(n). Konfidenz ${(review.confidence * 100).toFixed(0)} %.${findings}\nVorschau – bitte übernehmen oder verwerfen.`,
           },
         ],
       });
     } catch (err) {
       set({
         aiBusy: false,
+        aiProgress: undefined,
         aiMessages: [...get().aiMessages, { role: "assistant", text: `Generierung fehlgeschlagen: ${(err as Error).message}` }],
       });
     }

@@ -79,4 +79,8 @@ export interface ReviewReport {
   /** element id -> source text that produced it. */
   provenance: Record<string, string>;
   confidence: number; // 0..1
+  /** concrete quality defects found in the generated diagram (and repairs applied). */
+  findings?: string[];
+  /** which extractor produced the diagram. */
+  source?: "llm" | "rules";
 }

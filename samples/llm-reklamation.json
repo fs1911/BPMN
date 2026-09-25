@@ -1,0 +1,214 @@
+{
+ "title": "Reklamation",
+ "lang": "de",
+ "lanes": [
+  {
+   "id": "l1",
+   "name": "Support"
+  },
+  {
+   "id": "l2",
+   "name": "Lager"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "n1",
+   "type": "startEvent",
+   "name": "Reklamation eingegangen",
+   "lane": "l1",
+   "event": "message",
+   "source": "ein Kunde reklamiert"
+  },
+  {
+   "id": "n2",
+   "type": "parallelGateway",
+   "name": "",
+   "lane": "l1",
+   "event": "none",
+   "source": ""
+  },
+  {
+   "id": "n3",
+   "type": "userTask",
+   "name": "Reklamation prüfen",
+   "lane": "l1",
+   "event": "none",
+   "source": "schaut sich der Support das erst mal an"
+  },
+  {
+   "id": "n4",
+   "type": "serviceTask",
+   "name": "Ticket im CRM pflegen",
+   "lane": "l1",
+   "event": "none",
+   "source": "im CRM ein Ticket gepflegt"
+  },
+  {
+   "id": "n5",
+   "type": "exclusiveGateway",
+   "name": "Garantiefall?",
+   "lane": "l1",
+   "event": "none",
+   "source": "Ist es ein Garantiefall"
+  },
+  {
+   "id": "n6",
+   "type": "manualTask",
+   "name": "Ersatzgerät versenden",
+   "lane": "l2",
+   "event": "none",
+   "source": "die schicken Ersatz raus"
+  },
+  {
+   "id": "n7",
+   "type": "sendTask",
+   "name": "Reparaturangebot senden",
+   "lane": "l1",
+   "event": "none",
+   "source": "bekommt der Kunde ein Angebot"
+  },
+  {
+   "id": "n8",
+   "type": "exclusiveGateway",
+   "name": "Angebot angenommen?",
+   "lane": "l1",
+   "event": "none",
+   "source": "Lehnt er ab"
+  },
+  {
+   "id": "n9",
+   "type": "userTask",
+   "name": "Gerät reparieren",
+   "lane": "l2",
+   "event": "none",
+   "source": "Reparatur"
+  },
+  {
+   "id": "n10",
+   "type": "exclusiveGateway",
+   "name": "",
+   "lane": "",
+   "event": "none",
+   "source": ""
+  },
+  {
+   "id": "n11",
+   "type": "parallelGateway",
+   "name": "",
+   "lane": "",
+   "event": "none",
+   "source": ""
+  },
+  {
+   "id": "n12",
+   "type": "endEvent",
+   "name": "Reklamation erledigt",
+   "lane": "",
+   "event": "none",
+   "source": ""
+  },
+  {
+   "id": "n13",
+   "type": "endEvent",
+   "name": "Angebot abgelehnt",
+   "lane": "l1",
+   "event": "none",
+   "source": "war's das"
+  }
+ ],
+ "flows": [
+  {
+   "from": "n1",
+   "to": "n2",
+   "condition": "",
+   "isDefault": false
+  },
+  {
+   "from": "n2",
+   "to": "n3",
+   "condition": "",
+   "isDefault": false
+  },
+  {
+   "from": "n2",
+   "to": "n4",
+   "condition": "",
+   "isDefault": false
+  },
+  {
+   "from": "n3",
+   "to": "n5",
+   "condition": "",
+   "isDefault": false
+  },
+  {
+   "from": "n5",
+   "to": "n6",
+   "condition": "ja",
+   "isDefault": false
+  },
+  {
+   "from": "n5",
+   "to": "n7",
+   "condition": "nein",
+   "isDefault": false
+  },
+  {
+   "from": "n7",
+   "to": "n8",
+   "condition": "",
+   "isDefault": false
+  },
+  {
+   "from": "n8",
+   "to": "n9",
+   "condition": "ja",
+   "isDefault": false
+  },
+  {
+   "from": "n8",
+   "to": "n13",
+   "condition": "nein",
+   "isDefault": false
+  },
+  {
+   "from": "n6",
+   "to": "n10",
+   "condition": "",
+   "isDefault": false
+  },
+  {
+   "from": "n9",
+   "to": "n10",
+   "condition": "",
+   "isDefault": false
+  },
+  {
+   "from": "n10",
+   "to": "n11",
+   "condition": "",
+   "isDefault": false
+  },
+  {
+   "from": "n4",
+   "to": "n11",
+   "condition": "",
+   "isDefault": false
+  },
+  {
+   "from": "n11",
+   "to": "n12",
+   "condition": "",
+   "isDefault": false
+  }
+ ],
+ "systems": [
+  "CRM"
+ ],
+ "dataObjects": [],
+ "assumptions": [
+  "Bei angenommenem Angebot wird das Gerät repariert."
+ ],
+ "ambiguities": []
+}

@@ -13,6 +13,7 @@ export function AiPanel() {
   const messages = useEditor((s) => s.aiMessages);
   const review = useEditor((s) => s.aiReview);
   const busy = useEditor((s) => s.aiBusy);
+  const progress = useEditor((s) => s.aiProgress);
   const [tab, setTab] = useState<"generate" | "review">("generate");
   const [text, setText] = useState(SAMPLE);
   const [instruction, setInstruction] = useState("");
@@ -29,6 +30,7 @@ export function AiPanel() {
           <h4>Prozess beschreiben</h4>
           <textarea value={text} rows={8} onChange={(e) => setText(e.target.value)} placeholder="Arbeitsanweisung, E-Mail, Besprechungsnotizen oder Schrittliste einfügen…" />
           <button disabled={busy} onClick={() => void store.getState().generate(text)}>{busy ? "Generiere…" : "BPMN-Entwurf generieren"}</button>
+          {progress && <p className="muted progress">{progress}</p>}
 
           <h4>Per Anweisung aktualisieren</h4>
           <div className="row">
@@ -64,11 +66,20 @@ export function AiPanel() {
           {!review && <p className="muted">Generieren Sie ein Diagramm, um die Auswertung zu sehen: erkannte Rollen, Entscheidungen, Schleifen, Ausnahmen, Annahmen und Unklarheiten.</p>}
           {review && (
             <>
+              <p className="muted source">
+                Quelle: {review.source === "llm" ? "KI-Modell (Claude)" : "Regelbasierter Offline-Parser"}
+              </p>
               <div className="confidence">
                 <span>Konfidenz</span>
                 <div className="bar"><div style={{ width: `${review.confidence * 100}%` }} /></div>
                 <b>{(review.confidence * 100).toFixed(0)}%</b>
               </div>
+              {review.findings && review.findings.length > 0 && (
+                <div className="review-block findings">
+                  <h5>Qualitätshinweise</h5>
+                  <ul>{review.findings.map((f, i) => <li key={i}>{f}</li>)}</ul>
+                </div>
+              )}
               <ReviewList title="Rollen / Bahnen" items={review.roles} />
               <ReviewList title="Systeme" items={review.systems} />
               <ReviewList title="Dokumente / Daten" items={review.dataObjects} />

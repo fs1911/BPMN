@@ -229,7 +229,7 @@ function inferWeakLanes(model: BpmnModel): void {
   }
 }
 
-function removeEmptyLanes(model: BpmnModel): void {
+export function removeEmptyLanes(model: BpmnModel): void {
   for (const proc of Object.values(model.processes)) {
     proc.lanes = proc.lanes.filter((lid) => {
       const lane = model.lanes[lid];

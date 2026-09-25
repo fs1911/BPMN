@@ -20,14 +20,18 @@ Ordered by impact on real modeling work.
    coordinate-derived grid for faster routing on large diagrams and tighter bends.
 7. **Lane-crossing minimisation** — order lanes to reduce flows that hop lanes;
    bundle parallel same-direction flows.
-8. **Label placement solver** — push edge/flow labels off the line and resolve
-   label–label and label–shape collisions globally.
+8. ~~**Label placement solver**~~ — done (`src/core/layout/labels.ts`).
+8b. **Keep routes inside the pool** — some flows between lanes currently run
+   along or below the pool border (visible on LLM-generated diagrams with
+   parallel branches).
 9. **Mental-map preservation** — incremental layout that minimises movement of
    unchanged elements after an edit (currently a full deterministic re-layout).
 
 ## AI
-10. **Streaming LLM extraction** with the Anthropic hook wired into the UI, plus
-    a diff-preview (“accept / reject / refine”) before committing AI changes.
+10. ~~**Streaming LLM extraction** + accept/reject preview~~ — done (edge
+    function + Graph IR). Next: an **eval set of real process texts** to measure
+    generation quality, and **LLM-based instruction updates** (send the current
+    Graph IR + instruction, get a new Graph IR back).
 11. **Grounded provenance highlighting** — hover an element to highlight the
     source sentence, and vice-versa.
 12. **Clarification dialog** — when ambiguities are detected, ask the user the
