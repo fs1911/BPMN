@@ -74,6 +74,11 @@ async function callEndpoint(payload: Record<string, unknown>, opts: LlmCallOptio
   }
   const ctype = resp.headers.get("content-type") ?? "";
   if (!ctype.includes("application/x-ndjson")) {
+    // 401/403 come from the site protection (Netlify team login), not from the
+    // AI service: the login session expired while the page stayed open.
+    if (resp.status === 401 || resp.status === 403) {
+      throw new LlmUnavailableError(`Anmeldung abgelaufen (HTTP ${resp.status}) – Seite neu laden und bei Netlify anmelden.`);
+    }
     throw new LlmUnavailableError(`KI-Dienst nicht verfügbar (HTTP ${resp.status}).`);
   }
   if (!resp.body) throw new LlmUnavailableError("KI-Dienst lieferte keine Antwort.");
