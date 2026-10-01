@@ -59,6 +59,17 @@ objects, annotations, sub-process contents) are reported before you accept.
 Without a key both fall back to the offline rule-based parser, and the chat
 says so.
 
+**Word / PDF as input.** *Word / PDF laden* (or dropping a file on the text
+field) converts a `.docx` or a text PDF to Markdown **in the browser** — the
+file never leaves the machine; only the Markdown, shown in the text field for
+review first, goes to the AI. Headings, numbered steps, bullet lists and
+responsibility tables are kept; images, tables of contents, running
+headers/footers and page numbers are dropped. PDF pages that are a drawn
+diagram are left out (their labels make no sense without the arrows), scans
+without a text layer are reported instead of being sent. Limit: 30 000
+characters per generation (checked before anything is sent). Visio is not
+supported yet; old `.doc` files must be saved as `.docx`.
+
 - **Netlify:** set `ANTHROPIC_API_KEY` under *Site configuration → Environment
   variables* and redeploy. The key lives only in the edge function
   [`netlify/edge-functions/generate.ts`](netlify/edge-functions/generate.ts)

@@ -191,7 +191,12 @@ External parties
 
 "lang" is the language of the input ("de" or "en"); all names, conditions, assumptions and questions are in that language.`;
 
+/** Longest process text accepted for generation (also enforced server-side). */
+export const MAX_TEXT_CHARS = 30_000;
+
 export const GRAPH_SYSTEM_PROMPT = `You turn business process descriptions (SOPs, emails, meeting notes, free prose) into a BPMN 2.0 process graph. Your output is rendered as a diagram that a process owner reviews, so it must be faithful to the text and readable.
+
+The text may be Markdown converted from a Word or PDF document (procedure, work instruction, process description). Model only the process flow it describes. Purpose, scope, definitions, referenced documents, change history, distribution lists and similar sections are context, not steps. Responsibility tables (who does what) tell you the lanes. Text in table rows separated by "|" belongs together.
 
 ${GRAPH_RULES}
 

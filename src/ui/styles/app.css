@@ -124,7 +124,13 @@ textarea { resize: vertical; }
 .muted { color: var(--muted); }
 .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
 .tabs button { flex: 1; }
-.ai-generate textarea { margin-bottom: 8px; }
+.ai-generate textarea { margin-bottom: 4px; }
+.ai-generate textarea.drop { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.doc-import { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.doc-import button { flex: none; }
+.import-note { font-size: 12px; margin: 4px 0; padding: 6px 8px; border-radius: 6px; background: var(--surface-2); line-height: 1.35; }
+.import-note.error, .char-count.error { color: var(--error); }
+.char-count { font-size: 11px; color: var(--muted); text-align: right; margin: 0 0 8px; }
 .ai-generate h4 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; color: var(--muted); }
 .ai-generate .row { display: flex; gap: 6px; }
 .ai-generate .row button { flex: none; }

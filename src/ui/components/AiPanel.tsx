@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { DescriptionPanel } from "./DescriptionPanel";
 import { useEditor } from "@state/store";
+import { ai } from "@core/index";
+import { documentToMarkdown } from "../import/document";
 
 const SAMPLE = `Wenn eine Bestellanforderung eingeht, erfasst der Sachbearbeiter sie im System.
 Der Einkäufer prüft die Anforderung auf Vollständigkeit.
@@ -18,6 +20,33 @@ export function AiPanel() {
   const [tab, setTab] = useState<"generate" | "review" | "describe">("generate");
   const [text, setText] = useState(SAMPLE);
   const [instruction, setInstruction] = useState("");
+  const [importing, setImporting] = useState<string>();
+  const [importNote, setImportNote] = useState<{ text: string; error?: boolean }>();
+  const [dragOver, setDragOver] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const tooLong = text.length > ai.MAX_TEXT_CHARS;
+
+  // Word/PDF → Markdown in the browser; the result lands in the text field
+  // for review before anything is sent to the AI.
+  const importFile = async (file: File | undefined) => {
+    if (!file) return;
+    setImporting(file.name);
+    setImportNote(undefined);
+    try {
+      const { markdown, warnings } = await documentToMarkdown(file);
+      if (markdown.trim()) setText(markdown);
+      const size = `${markdown.length.toLocaleString("de-CH")} Zeichen`;
+      const empty = !markdown.trim();
+      setImportNote({
+        text: [empty ? `„${file.name}“: kein Text übernommen.` : `„${file.name}“ übernommen (${size}). Bitte prüfen und Abschnitte ohne Ablauf löschen, dann generieren.`, ...warnings].join(" "),
+        error: empty,
+      });
+    } catch (err) {
+      setImportNote({ text: (err as Error).message || "Datei konnte nicht gelesen werden.", error: true });
+    } finally {
+      setImporting(undefined);
+    }
+  };
 
   return (
     <div className="panel ai">
@@ -30,8 +59,47 @@ export function AiPanel() {
       {tab === "generate" && (
         <div className="ai-generate">
           <h4>Prozess beschreiben</h4>
-          <textarea value={text} rows={8} onChange={(e) => setText(e.target.value)} placeholder="Arbeitsanweisung, E-Mail, Besprechungsnotizen oder Schrittliste einfügen…" />
-          <button disabled={busy} onClick={() => void store.getState().generate(text)}>{busy ? "Generiere…" : "BPMN-Entwurf generieren"}</button>
+          <div className="doc-import">
+            <button disabled={busy || !!importing} onClick={() => fileInput.current?.click()}>
+              {importing ? "Lese Datei…" : "Word / PDF laden"}
+            </button>
+            <span className="muted">oder Datei ins Textfeld ziehen</span>
+            <input
+              ref={fileInput}
+              type="file"
+              hidden
+              accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={(e) => {
+                void importFile(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+          </div>
+          <textarea
+            className={dragOver ? "drop" : undefined}
+            value={text}
+            rows={8}
+            onChange={(e) => setText(e.target.value)}
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes("Files")) {
+                e.preventDefault();
+                setDragOver(true);
+              }
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              if (!e.dataTransfer.files.length) return;
+              e.preventDefault();
+              setDragOver(false);
+              void importFile(e.dataTransfer.files[0]);
+            }}
+            placeholder="Arbeitsanweisung, E-Mail, Besprechungsnotizen oder Schrittliste einfügen – oder Word/PDF laden…"
+          />
+          {importNote && <p className={`import-note${importNote.error ? " error" : ""}`}>{importNote.text}</p>}
+          <p className={`char-count${tooLong ? " error" : ""}`}>
+            {text.length.toLocaleString("de-CH")} / {ai.MAX_TEXT_CHARS.toLocaleString("de-CH")} Zeichen{tooLong ? " – zu lang, bitte kürzen" : ""}
+          </p>
+          <button disabled={busy || tooLong || !text.trim()} onClick={() => void store.getState().generate(text)}>{busy ? "Generiere…" : "BPMN-Entwurf generieren"}</button>
           {progress && <p className="muted progress">{progress}</p>}
 
           <h4>Per Anweisung aktualisieren</h4>

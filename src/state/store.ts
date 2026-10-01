@@ -197,7 +197,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   generate: async (text) => {
     const m = get().modeler;
     if (!m) return;
-    set({ aiBusy: true, aiProgress: "KI-Dienst wird kontaktiert…", aiMessages: [...get().aiMessages, { role: "user", text }] });
+    if (text.length > ai.MAX_TEXT_CHARS) {
+      // Checked here so an over-long document never silently falls back to the offline parser.
+      set({ aiMessages: [...get().aiMessages, { role: "assistant", text: `Text zu lang (${text.length.toLocaleString("de-CH")} Zeichen, maximal ${ai.MAX_TEXT_CHARS.toLocaleString("de-CH")}). Bitte Abschnitte ohne Ablauf (Zweck, Begriffe, Änderungshistorie …) löschen.` }] });
+      return;
+    }
+    const shown = text.length > 400 ? `${text.slice(0, 300).trimEnd()} … (${text.length.toLocaleString("de-CH")} Zeichen)` : text;
+    set({ aiBusy: true, aiProgress: "KI-Dienst wird kontaktiert…", aiMessages: [...get().aiMessages, { role: "user", text: shown }] });
     try {
       const prevXml = await getXml(m);
       let result: { model: BpmnModel; review: ai.ReviewReport };

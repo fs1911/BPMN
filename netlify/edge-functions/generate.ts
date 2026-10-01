@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { GRAPH_EDIT_PROMPT, GRAPH_IR_SCHEMA, GRAPH_SYSTEM_PROMPT } from "../../src/core/ai/graph-schema.ts";
+import { GRAPH_EDIT_PROMPT, GRAPH_IR_SCHEMA, GRAPH_SYSTEM_PROMPT, MAX_TEXT_CHARS } from "../../src/core/ai/graph-schema.ts";
 
 /**
  * Server-side LLM endpoint, NDJSON stream:
@@ -21,7 +21,7 @@ import { GRAPH_EDIT_PROMPT, GRAPH_IR_SCHEMA, GRAPH_SYSTEM_PROMPT } from "../../s
 declare const Netlify: { env: { get(key: string): string | undefined } };
 
 const MODEL = "claude-opus-5";
-const MAX_INPUT_CHARS = 12_000;
+const MAX_INPUT_CHARS = MAX_TEXT_CHARS;
 const MAX_INSTRUCTION_CHARS = 2_000;
 const MAX_GRAPH_CHARS = 120_000;
 

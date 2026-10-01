@@ -2,7 +2,7 @@
   "name": "flowcraft-bpmn",
   "private": true,
   "version": "1.0.0",
-  "description": "FlowCraft \u2014 a production-grade BPMN 2.0 modeling tool with a custom layout/routing engine and AI-assisted process generation.",
+  "description": "FlowCraft — a production-grade BPMN 2.0 modeling tool with a custom layout/routing engine and AI-assisted process generation.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -25,6 +25,8 @@
     "fast-xml-parser": "^4.5.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^5.7.284",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "svg2pdf.js": "^2.8.1",
