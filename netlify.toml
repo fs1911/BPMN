@@ -11,3 +11,10 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Access gate (personal access codes) in front of everything, including the
+# AI endpoint. Declared here so it runs before the inline-configured
+# /api/generate function.
+[[edge_functions]]
+  path = "/*"
+  function = "access"
