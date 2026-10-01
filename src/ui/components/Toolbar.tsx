@@ -7,6 +7,7 @@ export function Toolbar() {
   const theme = useEditor((s) => s.theme);
   const issues = useEditor((s) => s.issues);
   const busy = useEditor((s) => s.busy);
+  const showTaskTypes = useEditor((s) => s.showTaskTypes);
   const fileRef = useRef<HTMLInputElement>(null);
   const counts = summarize(issues);
 
@@ -35,6 +36,10 @@ export function Toolbar() {
         <button onClick={() => store.getState().zoomIn()} title="Vergrößern">＋</button>
         <button onClick={() => store.getState().zoomOut()} title="Verkleinern">－</button>
         <button onClick={() => store.getState().fit()} title="Einpassen">Einpassen</button>
+        <label className="tb-toggle" title="Symbole für Benutzer-, Sende-, Service-Aufgaben usw. (Männchen, Briefumschlag, Zahnräder). Der Aufgabentyp bleibt im Modell gespeichert.">
+          <input type="checkbox" checked={showTaskTypes} onChange={() => store.getState().toggleTaskTypes()} />
+          Aufgabentypen
+        </label>
       </div>
       <div className="tb-group">
         <button onClick={() => fileRef.current?.click()}>Importieren</button>

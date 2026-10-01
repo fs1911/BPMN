@@ -12,6 +12,7 @@ import {
   loadModelIntoModeler,
 } from "@ui/bpmn/bridge";
 import { buildProcessPdf, downloadBlob, fileBase } from "@ui/export/pdf";
+import { loadShowTaskTypes, saveShowTaskTypes, setShowTaskTypes } from "@ui/bpmn/plain-tasks";
 
 export type Theme = "light" | "dark";
 
@@ -24,6 +25,8 @@ interface EditorState {
   modeler: Modeler | null;
   ready: boolean;
   theme: Theme;
+  /** draw the person/envelope/gear icons of typed tasks */
+  showTaskTypes: boolean;
   issues: ValidationIssue[];
   aiReview?: ai.ReviewReport;
   aiMessages: AiMessage[];
@@ -40,6 +43,7 @@ interface EditorState {
   setModeler: (m: Modeler) => void;
   setReady: (r: boolean) => void;
   toggleTheme: () => void;
+  toggleTaskTypes: () => void;
 
   revalidate: () => Promise<void>;
   undo: () => void;
@@ -68,6 +72,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   modeler: null,
   ready: false,
   theme: "light",
+  showTaskTypes: loadShowTaskTypes(),
   issues: [],
   aiMessages: [],
   aiBusy: false,
@@ -76,6 +81,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   setModeler: (m) => set({ modeler: m }),
   setReady: (r) => set({ ready: r }),
   toggleTheme: () => set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
+  toggleTaskTypes: () => {
+    const show = !get().showTaskTypes;
+    saveShowTaskTypes(show);
+    set({ showTaskTypes: show });
+    const m = get().modeler;
+    if (m) setShowTaskTypes(m, show);
+  },
 
   revalidate: async () => {
     const m = get().modeler;

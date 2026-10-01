@@ -7,6 +7,7 @@ import {
 import { useEditor } from "@state/store";
 import { translateModule } from "@ui/bpmn/translate-de";
 import { fitViewport, initialXml } from "@ui/bpmn/bridge";
+import { plainTasksModule, setShowTaskTypes } from "@ui/bpmn/plain-tasks";
 
 /**
  * The editing surface is bpmn-js (the bpmn.io toolkit): professional rendering,
@@ -28,9 +29,11 @@ export function Canvas() {
         BpmnPropertiesPanelModule,
         BpmnPropertiesProviderModule,
         translateModule(),
+        plainTasksModule,
       ],
       keyboard: { bindTo: document },
     });
+    setShowTaskTypes(modeler, useEditor.getState().showTaskTypes);
     setModeler(modeler);
 
     let disposed = false;

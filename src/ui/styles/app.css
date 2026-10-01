@@ -210,3 +210,6 @@ html[data-theme="dark"] .bjs-properties { color: #1c2530; background: #fff; }
 /* AI edit preview: new / changed elements */
 .djs-element.ai-added .djs-visual > :first-child { stroke: #16a34a !important; stroke-width: 3px !important; fill: #ecfdf3 !important; }
 .djs-element.ai-changed .djs-visual > :first-child { stroke: #d97706 !important; stroke-width: 3px !important; fill: #fff7ed !important; }
+
+.tb-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; padding: 0 6px; cursor: pointer; user-select: none; }
+.tb-toggle input { margin: 0; }
