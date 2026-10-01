@@ -21,7 +21,9 @@ export type { GraphIR, GraphNodeIR, GraphFlowIR } from "./graph";
 export { editViaLlm, generateViaLlm, LlmUnavailableError } from "./remote";
 export type { EditResult, LlmCallOptions, LlmProgress, GenerationResultGraph } from "./remote";
 export { applyEditedGraph, diffGraphs, modelToGraphIR } from "./edit";
-export { MAX_TEXT_CHARS } from "./graph-schema";
+export { MAX_INSTRUCTION_CHARS, MAX_TEXT_CHARS } from "./graph-schema";
+export { buildAnswerInstruction, mergeAmbiguities } from "./answers";
+export type { AnsweredQuestion } from "./answers";
 export type { GraphDiff } from "./edit";
 
 export interface GenerationResult {

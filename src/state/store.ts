@@ -21,6 +21,15 @@ export interface AiMessage {
   text: string;
 }
 
+interface InstructOptions {
+  /** shown in the chat instead of the full instruction */
+  shown?: string;
+  /** questions this instruction answers (removed from the open list) */
+  answered?: ai.Ambiguity[];
+  /** no offline fallback: the rule parser cannot apply free answers */
+  llmOnly?: boolean;
+}
+
 interface EditorState {
   modeler: Modeler | null;
   ready: boolean;
@@ -35,7 +44,7 @@ interface EditorState {
   aiProgress?: string;
   busy: boolean;
   /** an AI suggestion shown as a preview, awaiting accept/reject. */
-  pending?: { prevXml: string; description: string; marked?: string[] };
+  pending?: { prevXml: string; description: string; marked?: string[]; prevReview?: ai.ReviewReport };
 
   acceptPreview: () => void;
   rejectPreview: () => Promise<void>;
@@ -65,7 +74,9 @@ interface EditorState {
   importXml: (xml: string) => Promise<void>;
 
   generate: (text: string) => Promise<void>;
-  instruct: (text: string) => Promise<void>;
+  instruct: (text: string, opts?: InstructOptions) => Promise<void>;
+  /** answers to the AI's open questions → one AI edit */
+  answerQuestions: (answers: ai.AnsweredQuestion[]) => Promise<void>;
 }
 
 export const useEditor = create<EditorState>((set, get) => ({
@@ -203,7 +214,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     await m.importXML(s.pending.prevXml);
     fitViewport(m);
     await get().revalidate();
-    set({ pending: undefined, aiMessages: [...get().aiMessages, { role: "assistant", text: "↩ Vorschlag verworfen, vorheriges Diagramm wiederhergestellt." }] });
+    set({ pending: undefined, ...(s.pending.prevReview ? { aiReview: s.pending.prevReview } : {}), aiMessages: [...get().aiMessages, { role: "assistant", text: "↩ Vorschlag verworfen, vorheriges Diagramm wiederhergestellt." }] });
   },
 
   generate: async (text) => {
@@ -236,6 +247,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       await loadModelIntoModeler(m, model);
       await get().revalidate();
       const findings = review.findings?.length ? `\n⚠ ${review.findings.length} Qualitätshinweis(e) – siehe Überprüfung.` : "";
+      const questions = review.ambiguities.length ? `\n❓ ${review.ambiguities.length} Rückfrage(n) der KI – unter „Überprüfung“ beantworten.` : "";
       set({
         aiReview: review,
         aiBusy: false,
@@ -245,7 +257,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           ...get().aiMessages,
           {
             role: "assistant",
-            text: `${fallbackNote}${review.source === "llm" ? "KI-Modell" : "Regel-Parser"}: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.decisions.length} Entscheidung(en), ${review.loops.length} Schleife(n). Konfidenz ${(review.confidence * 100).toFixed(0)} %.${findings}\nVorschau – bitte übernehmen oder verwerfen.`,
+            text: `${fallbackNote}${review.source === "llm" ? "KI-Modell" : "Regel-Parser"}: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.decisions.length} Entscheidung(en), ${review.loops.length} Schleife(n). Konfidenz ${(review.confidence * 100).toFixed(0)} %.${findings}${questions}\nVorschau – bitte übernehmen oder verwerfen.`,
           },
         ],
       });
@@ -258,10 +270,16 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
-  instruct: async (text) => {
+  instruct: async (text, opts = {}) => {
     const m = get().modeler;
     if (!m) return;
-    set({ aiBusy: true, aiProgress: "KI-Dienst wird kontaktiert…", aiMessages: [...get().aiMessages, { role: "user", text }] });
+    const prevReview = get().aiReview;
+    // Open questions survive an edit unless it answers them; the edit's own questions are added.
+    const withOpenQuestions = (review: ai.ReviewReport): ai.ReviewReport => ({
+      ...review,
+      ambiguities: ai.mergeAmbiguities(prevReview?.ambiguities ?? [], opts.answered ?? [], review.ambiguities),
+    });
+    set({ aiBusy: true, aiProgress: "KI-Dienst wird kontaktiert…", aiMessages: [...get().aiMessages, { role: "user", text: opts.shown ?? text }] });
     const say = (msg: string) => set({ aiMessages: [...get().aiMessages, { role: "assistant", text: msg }] });
     try {
       const prevXml = await getXml(m);
@@ -280,8 +298,9 @@ export const useEditor = create<EditorState>((set, get) => ({
         ];
         if (nothing) {
           await get().revalidate();
-          set({ aiBusy: false, aiProgress: undefined });
-          say(`KI-Modell: keine Änderung vorgenommen.${notes.length ? "\n" + notes.join("\n") : ""}`);
+          set({ aiBusy: false, aiProgress: undefined, ...(opts.answered?.length && prevReview ? { aiReview: withOpenQuestions({ ...prevReview, ambiguities: res.review.ambiguities }) } : {}) });
+          const answered = opts.answered?.length ? ` Keine Änderung am Diagramm nötig – ${opts.answered.length} Rückfrage(n) als beantwortet markiert.` : " Keine Änderung vorgenommen.";
+          say(`KI-Modell:${answered}${notes.length ? "\n" + notes.join("\n") : ""}`);
           return;
         }
         await loadModelIntoModeler(m, res.model);
@@ -291,14 +310,19 @@ export const useEditor = create<EditorState>((set, get) => ({
         set({
           aiBusy: false,
           aiProgress: undefined,
-          aiReview: res.review,
-          pending: { prevXml, description: `KI-Änderung: ${res.diff.summary}`, marked: [...res.diff.added, ...res.diff.changed] },
+          aiReview: withOpenQuestions(res.review),
+          pending: { prevXml, prevReview, description: `KI-Änderung: ${res.diff.summary}`, marked: [...res.diff.added, ...res.diff.changed] },
         });
         say(
           `KI-Modell: ${res.diff.summary}${notes.length ? "\n" + notes.join("\n") : ""}\nGrün = neu, orange = geändert. Vorschau – bitte übernehmen oder verwerfen.`,
         );
         return;
       } catch (err) {
+        if (opts.llmOnly && err instanceof ai.LlmUnavailableError) {
+          set({ aiBusy: false, aiProgress: undefined });
+          say(`${(err as Error).message} Die Antworten wurden nicht übernommen – ohne KI lassen sie sich nicht einarbeiten.`);
+          return;
+        }
         if (!(err instanceof ai.LlmUnavailableError)) {
           set({ aiBusy: false, aiProgress: undefined });
           say(`KI-Änderung fehlgeschlagen: ${(err as Error).message} Das Diagramm ist unverändert.`);
@@ -322,6 +346,17 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
+  answerQuestions: async (answers) => {
+    const given = answers.filter((a) => a.answer.trim());
+    if (!given.length) return;
+    const instruction = ai.buildAnswerInstruction(given);
+    if (instruction.length > ai.MAX_INSTRUCTION_CHARS) {
+      set({ aiMessages: [...get().aiMessages, { role: "assistant", text: `Antworten zu lang (${instruction.length} Zeichen, maximal ${ai.MAX_INSTRUCTION_CHARS}). Bitte kürzer fassen oder in zwei Durchgängen übergeben.` }] });
+      return;
+    }
+    const shown = `Antworten auf ${given.length} Rückfrage(n):\n` + given.map((a) => `• ${a.question.question} → ${a.answer.trim()}`).join("\n");
+    await get().instruct(instruction, { shown, answered: given.map((a) => a.question), llmOnly: true });
+  },
 }));
 
 /** Open AI questions become open points of the process description. */

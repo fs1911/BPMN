@@ -148,8 +148,13 @@ textarea { resize: vertical; }
 .review-block h5 { margin: 0 0 5px; font-size: 12px; }
 .tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .tag { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); }
-.review-block.assumptions ul, .review-block.ambiguities ul { margin: 0; padding-left: 16px; font-size: 12px; }
-.review-block.ambiguities { color: var(--warn); }
+.review-block.assumptions ul { margin: 0; padding-left: 16px; font-size: 12px; }
+.review-block.ambiguities .hint { font-size: 12px; margin: 0 0 8px; line-height: 1.35; }
+.questions { margin: 0 0 10px; padding-left: 18px; font-size: 12px; display: flex; flex-direction: column; gap: 10px; }
+.questions .q-text { color: var(--warn); line-height: 1.35; margin-bottom: 4px; }
+.questions .q-options { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.questions .chip.on { background: var(--accent); color: #fff; }
+.questions textarea { width: 100%; box-sizing: border-box; font-size: 12px; }
 .review-block.findings ul { margin: 0; padding-left: 16px; font-size: 12px; color: var(--warn); }
 .ai-generate .progress, .ai-review .source { margin: 6px 0; font-size: 12px; }
 .review-block.ambiguities b { color: var(--text); }
@@ -213,3 +218,4 @@ html[data-theme="dark"] .bjs-properties { color: #1c2530; background: #fff; }
 
 .tb-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; padding: 0 6px; cursor: pointer; user-select: none; }
 .tb-toggle input { margin: 0; }
+.submit-answers { width: 100%; font-weight: 600; }

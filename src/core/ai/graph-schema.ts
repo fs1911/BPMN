@@ -193,6 +193,8 @@ External parties
 
 /** Longest process text accepted for generation (also enforced server-side). */
 export const MAX_TEXT_CHARS = 30_000;
+/** Longest edit instruction (several answered questions fit). */
+export const MAX_INSTRUCTION_CHARS = 6_000;
 
 export const GRAPH_SYSTEM_PROMPT = `You turn business process descriptions (SOPs, emails, meeting notes, free prose) into a BPMN 2.0 process graph. Your output is rendered as a diagram that a process owner reviews, so it must be faithful to the text and readable.
 
@@ -212,6 +214,7 @@ Editing
 - "source": keep the existing value for existing elements; for new elements quote the relevant words of the instruction.
 - "assumptions" and "ambiguities" describe only this change. If the instruction cannot be applied or is unclear, return the process unchanged and explain why in "ambiguities".
 - Keep "title" and "lang" unless the instruction asks otherwise.
+- The instruction may answer earlier open questions. Treat the owner's answers as facts: model them, and do not ask about these points again.
 
 Apply the same modelling rules as when the process was created:
 

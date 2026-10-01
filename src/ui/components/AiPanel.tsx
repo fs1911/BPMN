@@ -146,6 +146,7 @@ export function AiPanel() {
                 <div className="bar"><div style={{ width: `${review.confidence * 100}%` }} /></div>
                 <b>{(review.confidence * 100).toFixed(0)}%</b>
               </div>
+              {review.ambiguities.length > 0 && <OpenQuestions questions={review.ambiguities} busy={busy} progress={progress} />}
               {review.findings && review.findings.length > 0 && (
                 <div className="review-block findings">
                   <h5>Qualitätshinweise</h5>
@@ -166,16 +167,57 @@ export function AiPanel() {
                   <ul>{review.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul>
                 </div>
               )}
-              {review.ambiguities.length > 0 && (
-                <div className="review-block ambiguities">
-                  <h5>Offene Fragen / Unklarheiten</h5>
-                  <ul>{review.ambiguities.map((a, i) => <li key={i}><b>{a.about}:</b> {a.question}{a.options ? ` (${a.options.join(" / ")})` : ""}</li>)}</ul>
-                </div>
-              )}
             </>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The AI's open questions with an answer field each. All answers go to the AI
+ * in one edit; unanswered questions stay open.
+ */
+function OpenQuestions({ questions, busy, progress }: { questions: ai.Ambiguity[]; busy: boolean; progress?: string }) {
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const given = questions.filter((q) => answers[q.question]?.trim());
+  const set = (q: ai.Ambiguity, v: string) => setAnswers((a) => ({ ...a, [q.question]: v }));
+  const submit = async () => {
+    const batch = given.map((q) => ({ question: q, answer: answers[q.question] }));
+    await useEditor.getState().answerQuestions(batch);
+    // Answered questions leave the list; keep what was typed for the others.
+    setAnswers((a) => Object.fromEntries(Object.entries(a).filter(([k]) => !batch.some((b) => b.question.question === k))));
+  };
+  return (
+    <div className="review-block ambiguities">
+      <h5>Offene Fragen ({questions.length})</h5>
+      <p className="muted hint">Beantworte, was du weisst – die KI arbeitet die Antworten ins Diagramm ein. Unbeantwortete Fragen bleiben offen.</p>
+      <ol className="questions">
+        {questions.map((q) => (
+          <li key={q.question}>
+            <div className="q-text">{q.about && <b>{q.about}: </b>}{q.question}</div>
+            {q.options && q.options.length > 0 && (
+              <div className="q-options">
+                {q.options.map((o) => (
+                  <button key={o} className={`chip${answers[q.question] === o ? " on" : ""}`} disabled={busy} onClick={() => set(q, o)}>{o}</button>
+                ))}
+              </div>
+            )}
+            <textarea
+              rows={2}
+              value={answers[q.question] ?? ""}
+              disabled={busy}
+              placeholder="Antwort…"
+              onChange={(e) => set(q, e.target.value)}
+            />
+          </li>
+        ))}
+      </ol>
+      <button className="submit-answers" disabled={busy || !given.length} onClick={() => void submit()}>
+        {busy ? "KI arbeitet…" : given.length ? `${given.length} Antwort(en) an KI übergeben` : "Antworten an KI übergeben"}
+      </button>
+      {busy && progress && <p className="muted progress">{progress}</p>}
     </div>
   );
 }
