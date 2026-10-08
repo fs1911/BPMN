@@ -15,7 +15,7 @@ import { buildProcessPdf, downloadBlob, fileBase } from "@ui/export/pdf";
 import { loadShowTaskTypes, saveShowTaskTypes, setShowTaskTypes } from "@ui/bpmn/plain-tasks";
 import { initialXml } from "@ui/bpmn/bridge";
 import { StoredProcess, newId } from "@core/library/library";
-import { getLastOpened, getProcess, putProcess, requestPersistence, setLastOpened } from "@ui/library/db";
+import { deleteProcess, getLastOpened, getProcess, putProcess, requestPersistence, setLastOpened } from "@ui/library/db";
 
 const SAMPLE_TEXT = `Wenn eine Bestellanforderung eingeht, erfasst der Sachbearbeiter sie im System.
 Der Einkäufer prüft die Anforderung auf Vollständigkeit.
@@ -65,7 +65,7 @@ interface EditorState {
   aiProgress?: string;
   busy: boolean;
   /** an AI suggestion shown as a preview, awaiting accept/reject. */
-  pending?: { prevXml: string; description: string; marked?: string[]; prevReview?: ai.ReviewReport; newDoc?: boolean };
+  pending?: { prevXml: string; description: string; marked?: string[]; prevReview?: ai.ReviewReport; newDoc?: boolean; prevDoc?: CurrentDoc };
 
   /** AI input field (saved with the process) */
   inputText: string;
@@ -156,8 +156,9 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = undefined;
     const m = get().modeler;
-    // An AI preview is not saved until it is accepted.
-    if (!m || get().pending) return;
+    // What is on screen is saved, an AI preview included: closing the tab
+    // without clicking "Übernehmen" must not lose a generated process.
+    if (!m) return;
     const xml = await getXml(m);
     const s = get();
     const sig = signature(xml, s);
@@ -370,8 +371,6 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (modeler && pending?.marked) unhighlight(modeler, pending.marked);
     set((s) => ({
       pending: undefined,
-      // A newly generated process goes into its own library entry instead of overwriting the open one.
-      ...(pending?.newDoc ? { doc: { name: "Neuer Prozess", nameAuto: true } } : {}),
       aiMessages: [...s.aiMessages, { role: "assistant", text: "✓ Vorschlag übernommen." }],
     }));
   },
@@ -379,8 +378,16 @@ export const useEditor = create<EditorState>((set, get) => ({
     const s = get();
     const m = s.modeler;
     if (!m || !s.pending) return;
+    const { prevDoc, newDoc } = s.pending;
+    if (newDoc && prevDoc) {
+      // The rejected draft had its own library entry: remove it and go back to the previous process.
+      if (s.doc.id && s.doc.id !== prevDoc.id) await deleteProcess(s.doc.id).catch(() => undefined);
+      set((st) => ({ doc: prevDoc, libraryVersion: st.libraryVersion + 1 }));
+      setLastOpened(prevDoc.id);
+    }
     await m.importXML(s.pending.prevXml);
     fitViewport(m);
+    if (newDoc) await markPristine(); // the previous process was saved before generating
     await get().revalidate();
     set({ pending: undefined, ...(s.pending.newDoc || s.pending.prevReview ? { aiReview: s.pending.prevReview } : {}), aiMessages: [...get().aiMessages, { role: "assistant", text: "↩ Vorschlag verworfen, vorheriges Diagramm wiederhergestellt." }] });
   },
@@ -414,6 +421,9 @@ export const useEditor = create<EditorState>((set, get) => ({
           "Stattdessen wurde der regelbasierte Offline-Parser verwendet – er versteht nur einfache Schrittlisten zuverlässig.\n";
       }
       const { model, review } = result;
+      // A newly generated process goes into its own library entry instead of overwriting the open one.
+      const prevDoc = get().doc;
+      set({ doc: { name: "Neuer Prozess", nameAuto: true } });
       await loadModelIntoModeler(m, model);
       await get().revalidate();
       const findings = review.findings?.length ? `\n⚠ ${review.findings.length} Qualitätshinweis(e) – siehe Überprüfung.` : "";
@@ -422,7 +432,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         aiReview: review,
         aiBusy: false,
         aiProgress: undefined,
-        pending: { prevXml, prevReview, newDoc: true, description: `Generierter Entwurf: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.loops.length} Schleife(n).` },
+        pending: { prevXml, prevReview, newDoc: true, prevDoc, description: `Generierter Entwurf: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.loops.length} Schleife(n).` },
         aiMessages: [
           ...get().aiMessages,
           {

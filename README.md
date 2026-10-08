@@ -63,8 +63,10 @@ says so.
 change) in the browser's IndexedDB: diagram, AI input text and open AI
 questions. *📁 Bibliothek* lists, searches, opens, renames, duplicates and
 deletes processes; the last opened one is reopened on the next visit. A newly
-generated process gets its own entry instead of overwriting the open one; an
-AI preview is only saved once accepted. The library lives in this browser on
+generated process gets its own entry instead of overwriting the open one. What
+is on screen is saved, an AI preview included (closing the tab without
+*Übernehmen* loses nothing); *Verwerfen* restores the previous state and
+removes the draft entry of a rejected new process. The library lives in this browser on
 this device and this site address only — *Bibliothek sichern* writes a JSON
 backup, *Sicherung laden* restores it (same id: newer version wins), which is
 also how the library moves to another browser or host.

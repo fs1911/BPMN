@@ -95,6 +95,37 @@ await page.locator(".lib-row", { hasText: "Ferienantrag (Kopie)" }).getByText("L
 await page.waitForFunction(() => document.querySelectorAll(".lib-row").length === 2);
 check("delete removes the entry", true);
 
+// A generated process is kept even without clicking "Übernehmen" …
+await closeLib();
+next = g2;
+await page.getByText("＋ Neu").click();
+await page.waitForFunction(() => document.querySelector(".doc-name")?.textContent === "Neuer Prozess");
+await page.locator(".ai-generate textarea").first().fill("ohne Übernehmen");
+await page.getByText("BPMN-Entwurf generieren").click();
+await page.waitForSelector(".preview-bar");
+await waitSaved();
+await page.reload({ waitUntil: "networkidle" });
+await page.waitForFunction(() => document.querySelector(".doc-name")?.textContent?.startsWith("Ferienantrag"), null, { timeout: 8000 });
+check("preview not accepted, after reload still there", (await page.locator(".ai-generate textarea").first().inputValue()) === "ohne Übernehmen");
+names = await libNames();
+check(`… as its own entry (${names.join(" | ")})`, names.length === 3);
+await closeLib();
+// … and "Verwerfen" removes the draft entry and returns to the previous process.
+await page.locator(".ai-generate textarea").first().fill("wird verworfen");
+await page.getByText("BPMN-Entwurf generieren").click();
+await page.waitForSelector(".preview-bar");
+await waitSaved();
+check(`draft saved while previewed (${(await libNames()).length} entries)`, (await page.locator(".lib-row").count()) === 4);
+await closeLib();
+await page.getByText("↩ Verwerfen").click();
+await page.waitForFunction(() => !document.querySelector(".preview-bar"));
+await waitSaved();
+names = await libNames();
+check(`reject removes the draft entry (${names.join(" | ")})`, names.length === 3);
+check("reject returns to the previous process", (await page.locator(".doc-name").textContent()).startsWith("Ferienantrag"));
+await page.locator(".lib-row.current").getByText("Löschen").click(); // back to two processes for the backup check
+await page.waitForFunction(() => document.querySelectorAll(".lib-row").length === 2);
+
 const [download] = await Promise.all([page.waitForEvent("download"), page.getByText("Bibliothek sichern").click()]);
 const backupPath = "/tmp/claude-0/s/lib-backup.json";
 await download.saveAs(backupPath);

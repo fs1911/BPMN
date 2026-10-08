@@ -17,7 +17,7 @@ export function App() {
     // Warn before unsaved work is lost; save right away when the tab is hidden.
     const beforeUnload = (e: BeforeUnloadEvent) => {
       const s = useEditor.getState();
-      if (s.saveState !== "saved" || s.pending) {
+      if (s.saveState !== "saved") {
         e.preventDefault();
         e.returnValue = "";
       }
