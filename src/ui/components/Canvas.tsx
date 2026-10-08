@@ -4,7 +4,7 @@ import {
   BpmnPropertiesPanelModule,
   BpmnPropertiesProviderModule,
 } from "bpmn-js-properties-panel";
-import { useEditor } from "@state/store";
+import { markPristine, useEditor } from "@state/store";
 import { translateModule } from "@ui/bpmn/translate-de";
 import { fitViewport, initialXml } from "@ui/bpmn/bridge";
 import { plainTasksModule, setShowTaskTypes } from "@ui/bpmn/plain-tasks";
@@ -39,15 +39,21 @@ export function Canvas() {
     let disposed = false;
     modeler
       .importXML(initialXml())
-      .then(() => {
+      .then(async () => {
         if (disposed) return;
         fitViewport(modeler);
         setReady(true);
+        await markPristine();
+        // Continue where the user left off.
+        await useEditor.getState().restoreLast();
         void useEditor.getState().revalidate();
       })
       .catch((err: unknown) => console.error("Initial import failed", err));
 
-    const onChange = () => void useEditor.getState().revalidate();
+    const onChange = () => {
+      void useEditor.getState().revalidate();
+      useEditor.getState().noteChange();
+    };
     modeler.on("commandStack.changed", onChange);
     modeler.on("import.done", onChange);
 

@@ -8,6 +8,10 @@ export function Toolbar() {
   const issues = useEditor((s) => s.issues);
   const busy = useEditor((s) => s.busy);
   const showTaskTypes = useEditor((s) => s.showTaskTypes);
+  const docName = useEditor((s) => s.doc.name);
+  const saveState = useEditor((s) => s.saveState);
+  const saveError = useEditor((s) => s.saveError);
+  const status = { saved: "✓ Gespeichert", saving: "Speichert…", unsaved: "● Nicht gespeichert", error: "⚠ Speichern fehlgeschlagen" }[saveState];
   const fileRef = useRef<HTMLInputElement>(null);
   const counts = summarize(issues);
 
@@ -22,6 +26,21 @@ export function Toolbar() {
   return (
     <div className="toolbar">
       <span className="brand">FlowCraft<small> BPMN</small></span>
+      <div className="tb-group doc">
+        <button onClick={() => store.getState().setLibraryOpen(true)} title="Gespeicherte Prozesse öffnen, umbenennen, sichern">📁 Bibliothek</button>
+        <button onClick={() => void store.getState().newProcess()} title="Neuen leeren Prozess beginnen (der aktuelle ist gespeichert)">＋ Neu</button>
+        <button
+          className="doc-name"
+          title="Umbenennen"
+          onClick={() => {
+            const name = window.prompt("Prozessname", docName);
+            if (name) void store.getState().renameCurrent(name);
+          }}
+        >
+          {docName}
+        </button>
+        <span className={`save-state ${saveState}`} title={saveError ?? "Wird automatisch in der Bibliothek dieses Browsers gespeichert"}>{status}</span>
+      </div>
       <div className="tb-group">
         <button onClick={() => store.getState().undo()} title="Rückgängig (Strg+Z)">↶</button>
         <button onClick={() => store.getState().redo()} title="Wiederholen (Strg+Y)">↷</button>

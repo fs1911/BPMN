@@ -4,12 +4,6 @@ import { useEditor } from "@state/store";
 import { ai } from "@core/index";
 import { documentToMarkdown } from "../import/document";
 
-const SAMPLE = `Wenn eine Bestellanforderung eingeht, erfasst der Sachbearbeiter sie im System.
-Der Einkäufer prüft die Anforderung auf Vollständigkeit.
-Wenn die Anforderung unvollständig ist, zurück an den Antragsteller senden.
-Der Abteilungsleiter gibt die Anforderung frei.
-Das System erstellt eine Bestellung.
-Der Prozess endet, wenn die Bestellung an den Lieferanten gesendet wurde.`;
 
 export function AiPanel() {
   const store = useEditor;
@@ -18,7 +12,9 @@ export function AiPanel() {
   const busy = useEditor((s) => s.aiBusy);
   const progress = useEditor((s) => s.aiProgress);
   const [tab, setTab] = useState<"generate" | "review" | "describe">("generate");
-  const [text, setText] = useState(SAMPLE);
+  // Kept in the store: it is saved with the process in the library.
+  const text = useEditor((s) => s.inputText);
+  const setText = useEditor((s) => s.setInputText);
   const [instruction, setInstruction] = useState("");
   const [importing, setImporting] = useState<string>();
   const [importNote, setImportNote] = useState<{ text: string; error?: boolean }>();

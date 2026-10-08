@@ -59,6 +59,16 @@ objects, annotations, sub-process contents) are reported before you accept.
 Without a key both fall back to the offline rule-based parser, and the chat
 says so.
 
+**Process library.** Every process is saved automatically (1.5 s after a
+change) in the browser's IndexedDB: diagram, AI input text and open AI
+questions. *📁 Bibliothek* lists, searches, opens, renames, duplicates and
+deletes processes; the last opened one is reopened on the next visit. A newly
+generated process gets its own entry instead of overwriting the open one; an
+AI preview is only saved once accepted. The library lives in this browser on
+this device and this site address only — *Bibliothek sichern* writes a JSON
+backup, *Sicherung laden* restores it (same id: newer version wins), which is
+also how the library moves to another browser or host.
+
 **Word / PDF as input.** *Word / PDF laden* (or dropping a file on the text
 field) converts a `.docx` or a text PDF to Markdown **in the browser** — the
 file never leaves the machine; only the Markdown, shown in the text field for

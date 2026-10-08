@@ -13,6 +13,27 @@ import {
 } from "@ui/bpmn/bridge";
 import { buildProcessPdf, downloadBlob, fileBase } from "@ui/export/pdf";
 import { loadShowTaskTypes, saveShowTaskTypes, setShowTaskTypes } from "@ui/bpmn/plain-tasks";
+import { initialXml } from "@ui/bpmn/bridge";
+import { StoredProcess, newId } from "@core/library/library";
+import { getLastOpened, getProcess, putProcess, requestPersistence, setLastOpened } from "@ui/library/db";
+
+const SAMPLE_TEXT = `Wenn eine Bestellanforderung eingeht, erfasst der Sachbearbeiter sie im System.
+Der Einkäufer prüft die Anforderung auf Vollständigkeit.
+Wenn die Anforderung unvollständig ist, zurück an den Antragsteller senden.
+Der Abteilungsleiter gibt die Anforderung frei.
+Das System erstellt eine Bestellung.
+Der Prozess endet, wenn die Bestellung an den Lieferanten gesendet wurde.`;
+
+export type SaveState = "saved" | "unsaved" | "saving" | "error";
+
+/** The library entry being edited; no id yet = not saved so far. */
+export interface CurrentDoc {
+  id?: string;
+  name: string;
+  /** name follows the process title until the user renames it */
+  nameAuto: boolean;
+  createdAt?: string;
+}
 
 export type Theme = "light" | "dark";
 
@@ -44,7 +65,26 @@ interface EditorState {
   aiProgress?: string;
   busy: boolean;
   /** an AI suggestion shown as a preview, awaiting accept/reject. */
-  pending?: { prevXml: string; description: string; marked?: string[]; prevReview?: ai.ReviewReport };
+  pending?: { prevXml: string; description: string; marked?: string[]; prevReview?: ai.ReviewReport; newDoc?: boolean };
+
+  /** AI input field (saved with the process) */
+  inputText: string;
+  setInputText: (t: string) => void;
+  doc: CurrentDoc;
+  saveState: SaveState;
+  saveError?: string;
+  /** bumped when library contents change, so open lists reload */
+  libraryVersion: number;
+  /** schedule an autosave after a change */
+  noteChange: () => void;
+  saveNow: () => Promise<void>;
+  newProcess: (opts?: { skipSave?: boolean }) => Promise<void>;
+  openProcess: (id: string, opts?: { quiet?: boolean }) => Promise<void>;
+  renameCurrent: (name: string) => Promise<void>;
+  restoreLast: () => Promise<void>;
+  libraryChanged: () => void;
+  libraryOpen: boolean;
+  setLibraryOpen: (open: boolean) => void;
 
   acceptPreview: () => void;
   rejectPreview: () => Promise<void>;
@@ -88,6 +128,129 @@ export const useEditor = create<EditorState>((set, get) => ({
   aiMessages: [],
   aiBusy: false,
   busy: false,
+  inputText: SAMPLE_TEXT,
+  doc: { name: "Neuer Prozess", nameAuto: true },
+  saveState: "saved",
+  libraryVersion: 0,
+  libraryOpen: false,
+  setLibraryOpen: (open) => set({ libraryOpen: open }),
+
+  setInputText: (t) => {
+    set({ inputText: t });
+    get().noteChange();
+  },
+  libraryChanged: () => set((s) => ({ libraryVersion: s.libraryVersion + 1 })),
+
+  noteChange: () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => void get().saveNow(), AUTOSAVE_MS);
+    void (async () => {
+      const m = get().modeler;
+      if (!m) return;
+      const sig = signature(await getXml(m), get());
+      if (sig !== lastSaved.sig || get().pending) set({ saveState: get().saveState === "saving" ? "saving" : "unsaved" });
+    })();
+  },
+
+  saveNow: async () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = undefined;
+    const m = get().modeler;
+    // An AI preview is not saved until it is accepted.
+    if (!m || get().pending) return;
+    const xml = await getXml(m);
+    const s = get();
+    const sig = signature(xml, s);
+    if (sig === lastSaved.sig) {
+      set({ saveState: "saved", saveError: undefined });
+      return;
+    }
+    // A new, untouched diagram (only the text field changed) is not worth a library entry.
+    if (!s.doc.id && xml === lastSaved.xml) {
+      set({ saveState: "saved", saveError: undefined });
+      return;
+    }
+    const now = new Date().toISOString();
+    const name = s.doc.nameAuto ? s.description?.title?.trim() || "Unbenannter Prozess" : s.doc.name;
+    const rec: StoredProcess = {
+      id: s.doc.id ?? newId(),
+      name,
+      xml,
+      sourceText: s.inputText,
+      review: s.aiReview,
+      createdAt: s.doc.createdAt ?? now,
+      updatedAt: now,
+    };
+    set({ saveState: "saving" });
+    try {
+      await putProcess(rec);
+      lastSaved = { sig, xml };
+      if (!s.doc.id) void requestPersistence();
+      setLastOpened(rec.id);
+      set((st) => ({
+        doc: { ...st.doc, id: rec.id, name: rec.name, createdAt: rec.createdAt },
+        saveState: "saved",
+        saveError: undefined,
+        libraryVersion: st.libraryVersion + 1,
+      }));
+    } catch (err) {
+      set({ saveState: "error", saveError: (err as Error).message });
+    }
+  },
+
+  newProcess: async (opts = {}) => {
+    const m = get().modeler;
+    if (!m) return;
+    if (!opts.skipSave) await get().saveNow();
+    set({ doc: { name: "Neuer Prozess", nameAuto: true }, inputText: "", aiReview: undefined, aiMessages: [], pending: undefined });
+    await m.importXML(initialXml());
+    fitViewport(m);
+    await markPristine();
+    setLastOpened(undefined);
+    await get().revalidate();
+  },
+
+  openProcess: async (id, opts = {}) => {
+    const m = get().modeler;
+    if (!m) return;
+    await get().saveNow();
+    const rec = await getProcess(id);
+    if (!rec) throw new Error("Prozess nicht gefunden – wurde er gelöscht?");
+    const review = rec.review as ai.ReviewReport | undefined;
+    set({
+      doc: { id: rec.id, name: rec.name, nameAuto: false, createdAt: rec.createdAt },
+      inputText: rec.sourceText,
+      aiReview: review,
+      pending: undefined,
+      saveState: "saved",
+      aiMessages: opts.quiet ? [] : [{ role: "assistant", text: `Prozess „${rec.name}“ geöffnet.` }],
+    });
+    await m.importXML(rec.xml);
+    fitViewport(m);
+    await markPristine();
+    setLastOpened(rec.id);
+    await get().revalidate();
+  },
+
+  renameCurrent: async (name) => {
+    const clean = name.trim();
+    if (!clean) return;
+    set((s) => ({ doc: { ...s.doc, name: clean, nameAuto: false } }));
+    if (get().doc.id) {
+      lastSaved = { ...lastSaved, sig: "" }; // force a write of the new name
+      await get().saveNow();
+    }
+  },
+
+  restoreLast: async () => {
+    const id = getLastOpened();
+    if (!id) return;
+    try {
+      await get().openProcess(id, { quiet: true });
+    } catch {
+      setLastOpened(undefined);
+    }
+  },
 
   setModeler: (m) => set({ modeler: m }),
   setReady: (r) => set({ ready: r }),
@@ -194,6 +357,9 @@ export const useEditor = create<EditorState>((set, get) => ({
   importXml: async (xml) => {
     const m = get().modeler;
     if (!m) return;
+    await get().saveNow();
+    // An imported file becomes a new library entry.
+    set({ doc: { name: "Importierter Prozess", nameAuto: true }, aiReview: undefined, pending: undefined });
     await m.importXML(xml);
     fitViewport(m);
     await get().revalidate();
@@ -204,6 +370,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (modeler && pending?.marked) unhighlight(modeler, pending.marked);
     set((s) => ({
       pending: undefined,
+      // A newly generated process goes into its own library entry instead of overwriting the open one.
+      ...(pending?.newDoc ? { doc: { name: "Neuer Prozess", nameAuto: true } } : {}),
       aiMessages: [...s.aiMessages, { role: "assistant", text: "✓ Vorschlag übernommen." }],
     }));
   },
@@ -214,7 +382,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     await m.importXML(s.pending.prevXml);
     fitViewport(m);
     await get().revalidate();
-    set({ pending: undefined, ...(s.pending.prevReview ? { aiReview: s.pending.prevReview } : {}), aiMessages: [...get().aiMessages, { role: "assistant", text: "↩ Vorschlag verworfen, vorheriges Diagramm wiederhergestellt." }] });
+    set({ pending: undefined, ...(s.pending.newDoc || s.pending.prevReview ? { aiReview: s.pending.prevReview } : {}), aiMessages: [...get().aiMessages, { role: "assistant", text: "↩ Vorschlag verworfen, vorheriges Diagramm wiederhergestellt." }] });
   },
 
   generate: async (text) => {
@@ -228,6 +396,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     const shown = text.length > 400 ? `${text.slice(0, 300).trimEnd()} … (${text.length.toLocaleString("de-CH")} Zeichen)` : text;
     set({ aiBusy: true, aiProgress: "KI-Dienst wird kontaktiert…", aiMessages: [...get().aiMessages, { role: "user", text: shown }] });
     try {
+      await get().saveNow(); // the open process is saved before a new one replaces it on screen
+      const prevReview = get().aiReview;
       const prevXml = await getXml(m);
       let result: { model: BpmnModel; review: ai.ReviewReport };
       let fallbackNote = "";
@@ -252,7 +422,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         aiReview: review,
         aiBusy: false,
         aiProgress: undefined,
-        pending: { prevXml, description: `Generierter Entwurf: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.loops.length} Schleife(n).` },
+        pending: { prevXml, prevReview, newDoc: true, description: `Generierter Entwurf: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.loops.length} Schleife(n).` },
         aiMessages: [
           ...get().aiMessages,
           {
@@ -380,3 +550,37 @@ function unhighlight(m: Modeler, ids: string[]): void {
     canvas.removeMarker(id, "ai-changed");
   }
 }
+
+// ---------------------------------------------------------------------------
+// Autosave bookkeeping
+
+const AUTOSAVE_MS = 1500;
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+/** what was last written to (or read from) the library */
+let lastSaved: { sig: string; xml: string } = { sig: "", xml: "" };
+
+/** Everything that is saved with a process; equal signature = nothing to save. */
+function signature(xml: string, s: { inputText: string; aiReview?: ai.ReviewReport }): string {
+  return `${xml}\u0000${s.inputText}\u0000${JSON.stringify(s.aiReview ?? null)}`;
+}
+
+/**
+ * The diagram as just loaded (start, "Neu", opened from the library) is the
+ * saved baseline. Taken from bpmn-js itself: it re-serializes XML slightly
+ * differently from the source, which must not count as a change.
+ */
+export async function markPristine(): Promise<void> {
+  const s = useEditor.getState();
+  if (!s.modeler) return;
+  const xml = await getXml(s.modeler);
+  lastSaved = { sig: signature(xml, s), xml };
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = undefined;
+  useEditor.setState({ saveState: "saved", saveError: undefined });
+}
+
+
+// Changes to the saved parts outside the diagram (AI review, accepted/rejected preview) trigger autosave too.
+useEditor.subscribe((s, prev) => {
+  if (s.aiReview !== prev.aiReview || s.pending !== prev.pending) s.noteChange();
+});
