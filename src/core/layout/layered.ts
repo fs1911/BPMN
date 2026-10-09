@@ -208,14 +208,44 @@ function buildLayered(
 function pinLoopEnds(L: Layered, model: BpmnModel, laneIdx: (id: string) => number): void {
   const span = (e: string) => L.loops[e].length;
   const ids = Object.keys(L.loops).sort((a, b) => span(b) - span(a) || a.localeCompare(b));
+  const pinned = new Set<string>(); // anchors that already carry a loop end
+  /** crossings between this rank and its neighbours */
+  const localCrossings = (r: number) =>
+    (r > 0 ? layerCrossings(L.ranks[r - 1], L.ranks[r], L.adj) : 0) + (r < L.ranks.length - 1 ? layerCrossings(L.ranks[r], L.ranks[r + 1], L.adj) : 0);
   const place = (dummy: string, anchor: string) => {
-    const rank = L.ranks[L.items[dummy].rank];
+    const r = L.items[dummy].rank;
+    const rank = L.ranks[r];
     rank.splice(rank.indexOf(dummy), 1);
     const la = laneIdx(anchor);
     const ld = laneIdx(dummy);
     let at: number;
-    if (la === ld) at = rank.indexOf(anchor) + 1;
-    else if (ld > la) at = rank.findIndex((id) => laneIdx(id) >= ld); // top of a lane below
+    if (la === ld) {
+      // The loop end sits next to its activity. Which side, and where the pair
+      // goes among the lane's other items of this rank, is chosen by the fewest
+      // crossings — the order was fixed before loops were known (default: below,
+      // in place).
+      const from = rank.indexOf(anchor);
+      let best = { cost: Infinity, order: [] as string[] };
+      const tryOrder = (order: string[]) => {
+        L.ranks[r] = order;
+        const cost = localCrossings(r);
+        if (cost < best.cost) best = { cost, order };
+      };
+      tryOrder([...rank.slice(0, from + 1), dummy, ...rank.slice(from + 1)]);
+      tryOrder([...rank.slice(0, from), dummy, ...rank.slice(from)]);
+      if (!pinned.has(anchor)) {
+        const rest = rank.filter((id) => id !== anchor);
+        const slots = rest.map((_, i) => i).filter((i) => laneIdx(rest[i]) === la);
+        const candidates = new Set<number>([...slots, ...slots.map((i) => i + 1)]);
+        for (const i of candidates) {
+          tryOrder([...rest.slice(0, i), dummy, anchor, ...rest.slice(i)]);
+          tryOrder([...rest.slice(0, i), anchor, dummy, ...rest.slice(i)]);
+        }
+      }
+      L.ranks[r] = best.order;
+      pinned.add(anchor);
+      return;
+    } else if (ld > la) at = rank.findIndex((id) => laneIdx(id) >= ld); // top of a lane below
     else {
       const after = rank.findIndex((id) => laneIdx(id) > ld); // bottom of a lane above
       at = after < 0 ? rank.length : after;

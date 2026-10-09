@@ -178,7 +178,7 @@ describe("boundary events in the AI format", () => {
     const next = model.nodes[Object.values(model.edges).find((e) => e.source === b.id)!.target];
     expect(next.bounds.x).toBeGreaterThan(host.bounds.x);
     const m = measureLayout(model);
-    expect(m.crossings).toBeLessThanOrEqual(3);
+    expect(m.crossings).toBe(0);
     expect(m.maxDetour).toBeLessThanOrEqual(400);
     // survives BPMN XML and the way back to the AI format (editing)
     const back = importBpmn(exportBpmn(model));
