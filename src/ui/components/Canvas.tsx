@@ -21,6 +21,7 @@ export function Canvas() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const setModeler = useEditor((s) => s.setModeler);
+  const showProps = useEditor((s) => s.panels.props);
   const setReady = useEditor((s) => s.setReady);
 
   useEffect(() => {
@@ -73,7 +74,8 @@ export function Canvas() {
   return (
     <div className="editor">
       <div ref={canvasRef} className="bjs-canvas" />
-      <div ref={panelRef} className="bjs-properties" />
+      {/* stays mounted when hidden: bpmn-js keeps rendering into it */}
+      <div ref={panelRef} className={`bjs-properties${showProps ? "" : " hidden"}`} />
     </div>
   );
 }

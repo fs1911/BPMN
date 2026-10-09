@@ -8,6 +8,7 @@ export function Toolbar() {
   const issues = useEditor((s) => s.issues);
   const busy = useEditor((s) => s.busy);
   const showTaskTypes = useEditor((s) => s.showTaskTypes);
+  const panels = useEditor((s) => s.panels);
   const docName = useEditor((s) => s.doc.name);
   const saveState = useEditor((s) => s.saveState);
   const saveError = useEditor((s) => s.saveError);
@@ -70,6 +71,14 @@ export function Toolbar() {
         <input ref={fileRef} type="file" accept=".bpmn,.xml" hidden onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
       </div>
       <div className="tb-spacer" />
+      <div className="tb-group panel-toggles" role="group" aria-label="Seitenbereiche">
+        <button className={panels.props ? "on" : ""} aria-pressed={panels.props} onClick={() => store.getState().togglePanel("props")} title="Bereich mit den Eigenschaften des gewählten Elements ein-/ausblenden">
+          ◨ Eigenschaften
+        </button>
+        <button className={panels.ai ? "on" : ""} aria-pressed={panels.ai} onClick={() => store.getState().togglePanel("ai")} title="KI-Bereich (Modellierung, Überprüfung, Beschreibung) ein-/ausblenden">
+          ◨ KI-Bereich
+        </button>
+      </div>
       <div className="tb-group validation-badge" title="Validierungsergebnisse">
         <span className="err">{counts.errors} Fehler</span>
         <span className="warn">{counts.warnings} Warnungen</span>

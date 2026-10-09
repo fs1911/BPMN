@@ -113,6 +113,10 @@ check, which covers combinations no single path shows. *Manuell simulieren*
 [bpmn-js-token-simulation](https://github.com/bpmn-io/bpmn-js-token-simulation)
 (MIT), where you pick the way at each gateway yourself.
 
+**More room for the diagram.** *◨ Eigenschaften* and *◨ KI-Bereich* in the
+toolbar hide or show the two right-hand areas; the diagram takes the freed
+width and the choice is remembered in this browser.
+
 **Version history.** Every *In Bibliothek speichern* (Ctrl+S) stores a version
 (unchanged states are not duplicated; the newest 20 per process are kept).
 *🕘 Versionen* sets any version side by side with the current state —

@@ -19,6 +19,7 @@ import { addVersion, deleteProcess, getLastOpened, getProcess, listProcesses, pu
 
 /** localStorage key of the self-correction switch (read when the store is created) */
 const SELF_CORRECT_KEY = "flowcraft.selfCorrect";
+const PANEL_KEYS = { props: "flowcraft.panel.props", ai: "flowcraft.panel.ai" } as const;
 
 const SAMPLE_TEXT = `Wenn eine Bestellanforderung eingeht, erfasst der Sachbearbeiter sie im System.
 Der Einkäufer prüft die Anforderung auf Vollständigkeit.
@@ -98,6 +99,9 @@ interface EditorState {
   /** send violations of the standard back to the AI once after generating (costs a second call) */
   selfCorrect: boolean;
   setSelfCorrect: (on: boolean) => void;
+  /** right-hand panels: properties of the selected element, and the AI panel */
+  panels: { props: boolean; ai: boolean };
+  togglePanel: (which: "props" | "ai") => void;
   setAutoSimOpen: (open: boolean) => void;
   /** make a saved version the current state (the current state is saved as a version first) */
   restoreVersion: (xml: string, number: number) => Promise<void>;
@@ -154,6 +158,20 @@ export const useEditor = create<EditorState>((set, get) => ({
   setVersionsOpen: (open) => set({ versionsOpen: open }),
   autoSimOpen: false,
   setAutoSimOpen: (open) => set({ autoSimOpen: open }),
+  panels: { props: readFlag(PANEL_KEYS.props, true), ai: readFlag(PANEL_KEYS.ai, true) },
+  togglePanel: (which) => {
+    const open = !get().panels[which];
+    writeFlag(PANEL_KEYS[which], open);
+    set({ panels: { ...get().panels, [which]: open } });
+    // the canvas gets the freed width: let bpmn-js know its size changed
+    requestAnimationFrame(() => {
+      try {
+        get().modeler?.get<any>("canvas").resized();
+      } catch {
+        /* no diagram yet */
+      }
+    });
+  },
   selfCorrect: readFlag(SELF_CORRECT_KEY),
   setSelfCorrect: (on) => {
     writeFlag(SELF_CORRECT_KEY, on);
@@ -719,11 +737,12 @@ useEditor.subscribe((s, prev) => {
   if (s.aiReview !== prev.aiReview || s.pending !== prev.pending) s.noteChange();
 });
 
-function readFlag(key: string): boolean {
+function readFlag(key: string, fallback = false): boolean {
   try {
-    return localStorage.getItem(key) === "1";
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v === "1";
   } catch {
-    return false;
+    return fallback;
   }
 }
 function writeFlag(key: string, on: boolean): void {

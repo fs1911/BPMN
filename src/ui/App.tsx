@@ -12,6 +12,7 @@ import { AutoSimPanel } from "./components/AutoSimPanel";
 export function App() {
   const theme = useEditor((s) => s.theme);
   const toast = useEditor((s) => s.toast);
+  const panels = useEditor((s) => s.panels);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
@@ -54,7 +55,7 @@ export function App() {
           <ValidationPanel />
           <AutoSimPanel />
         </main>
-        <aside className="side">
+        <aside className={`side${panels.ai ? "" : " hidden"}`}>
           <AiPanel />
         </aside>
       </div>
