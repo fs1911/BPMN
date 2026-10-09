@@ -10,6 +10,10 @@ export interface ValidationIssue {
   /** concrete, actionable fix in plain language. */
   hint?: string;
   elementId?: string;
+  /** further elements involved (highlighted together with elementId) */
+  relatedIds?: string[];
+  /** example run leading to the problem (element names), from the simulation */
+  trace?: string[];
 }
 
 /**

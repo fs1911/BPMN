@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type Modeler from "bpmn-js/lib/Modeler";
-import { BpmnModel, ValidationIssue, layoutIssues, validate } from "@core/index";
+import { BpmnModel, ValidationIssue, layoutIssues, simulationIssues, validate } from "@core/index";
 import { ai } from "@core/index";
 import { ProcessDescription, describeProcess, descriptionToMarkdown } from "@core/describe";
 import {
@@ -332,7 +332,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!m) return;
     try {
       const model = await getModelFromModeler(m);
-      set({ issues: [...validate(model), ...layoutIssues(model)], description: describeProcess(model, { extraOpenPoints: clarifications(get().aiReview) }) });
+      set({ issues: [...simulationIssues(model), ...validate(model), ...layoutIssues(model)], description: describeProcess(model, { extraOpenPoints: clarifications(get().aiReview) }) });
     } catch {
       /* mid-edit invalid XML; ignore */
     }

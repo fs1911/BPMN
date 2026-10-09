@@ -8,6 +8,9 @@ import { markPristine, useEditor } from "@state/store";
 import { translateModule } from "@ui/bpmn/translate-de";
 import { fitViewport, initialXml } from "@ui/bpmn/bridge";
 import { plainTasksModule, setShowTaskTypes } from "@ui/bpmn/plain-tasks";
+import TokenSimulationModule from "bpmn-js-token-simulation/lib/modeler";
+import "bpmn-js-token-simulation/assets/css/bpmn-js-token-simulation.css";
+import { germanizeTokenSimulation } from "@ui/bpmn/simulation-de";
 
 /**
  * The editing surface is bpmn-js (the bpmn.io toolkit): professional rendering,
@@ -30,10 +33,12 @@ export function Canvas() {
         BpmnPropertiesProviderModule,
         translateModule(),
         plainTasksModule,
+        TokenSimulationModule,
       ],
       keyboard: { bindTo: document },
     });
     setShowTaskTypes(modeler, useEditor.getState().showTaskTypes);
+    const stopGerman = germanizeTokenSimulation(canvasRef.current);
     setModeler(modeler);
 
     let disposed = false;
@@ -59,6 +64,7 @@ export function Canvas() {
 
     return () => {
       disposed = true;
+      stopGerman();
       modeler.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

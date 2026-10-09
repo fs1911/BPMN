@@ -8,3 +8,8 @@ declare module "*?url" {
   const url: string;
   export default url;
 }
+
+declare module "bpmn-js-token-simulation/lib/modeler" {
+  const module: any;
+  export default module;
+}

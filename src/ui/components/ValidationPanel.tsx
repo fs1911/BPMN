@@ -11,13 +11,16 @@ export function ValidationPanel() {
   const [open, setOpen] = useState(true);
   const counts = summarize(issues);
 
-  const locate = (elementId?: string) => {
+  const locate = (elementId?: string, related: string[] = []) => {
     if (!elementId) return;
     const modeler = store.getState().modeler;
     if (!modeler) return;
-    const el = modeler.get<any>("elementRegistry").get(elementId);
+    const registry = modeler.get<any>("elementRegistry");
+    const el = registry.get(elementId);
     if (!el) return;
-    modeler.get<any>("selection").select(el);
+    // Select the location and everything involved (e.g. the decision that causes a deadlock).
+    const all = [el, ...related.map((id) => registry.get(id)).filter((x: any) => x && !x.waypoints)];
+    modeler.get<any>("selection").select(all);
     try {
       modeler.get<any>("canvas").scrollToElement(el);
     } catch {
@@ -42,13 +45,19 @@ export function ValidationPanel() {
       {open && (
         <ul>
           {issues.map((it, i) => (
-            <li key={i} className={it.severity} onClick={() => locate(it.elementId)}>
+            <li key={i} className={it.severity} onClick={() => locate(it.elementId, it.relatedIds)}>
               <span className={`badge ${it.severity}`}>{SEV_ICON[it.severity]}</span>
               <div className="vi-body">
                 <div className="vi-msg">
+                  {it.rule.startsWith("simulation.") && <span className="vi-tag">Ablauf</span>}
                   <span className="vi-sev">{SEV_LABEL[it.severity] ?? it.severity}:</span> {it.message}
                 </div>
                 {it.hint && <div className="vi-hint">→ {it.hint}</div>}
+                {it.trace && (
+                  <div className="vi-trace" title={it.trace.join(" → ")}>
+                    Beispielablauf: {it.trace.length > 8 ? `… → ${it.trace.slice(-8).join(" → ")}` : it.trace.join(" → ")}
+                  </div>
+                )}
               </div>
             </li>
           ))}
