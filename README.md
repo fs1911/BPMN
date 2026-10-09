@@ -78,10 +78,18 @@ events, subprocess scopes), so problems on *any* path are found — deadlocks
 (e.g. an AND-join after an XOR decision, or a path that ends inside a parallel
 section), double execution (AND-split merged by XOR), loops without exit and
 unreachable elements. Findings appear under *Ablauf* in the diagram check with
-an example run; clicking one selects all involved elements. *Simulation*
-(top left of the canvas) animates tokens step by step via
+an example run; clicking one selects all involved elements.
+
+*▶ Simulation* plays the process by itself (`src/core/simulation/scenarios.ts`,
+`src/ui/bpmn/auto-sim.ts`): paths are chosen so that every answer at every
+gateway is taken at least once and every loop once; tokens run along the
+connections, parallel branches advance together, and each path is judged
+(✓ reaches the end, ✕ gets stuck / runs twice, with the spot marked red).
+Click a path to replay it. The panel also shows the verdict of the exhaustive
+check, which covers combinations no single path shows. *Manuell simulieren*
+(top left of the canvas) is the step-by-step token simulation of
 [bpmn-js-token-simulation](https://github.com/bpmn-io/bpmn-js-token-simulation)
-(MIT), with German labels.
+(MIT), where you pick the way at each gateway yourself.
 
 **Version history.** Every *In Bibliothek speichern* (Ctrl+S) stores a version
 (unchanged states are not duplicated; the newest 20 per process are kept).

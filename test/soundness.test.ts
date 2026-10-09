@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createEdge, createNode, emptyModel, type BpmnModel, type FlowElementType } from "../src/core";
 import { analyzeSoundness } from "../src/core/simulation/soundness";
+import { enumerateScenarios } from "../src/core/simulation/scenarios";
 import { mapGraphToModel, sanitizeGraphIR } from "../src/core/ai";
 import { CORPUS } from "./fixtures/processes";
 import { randomProcess, setSeed } from "./fixtures/random-process";
@@ -92,5 +93,63 @@ describe("process simulation (soundness)", () => {
     }
     expect(worst).toBeLessThan(500);
     expect(withIssues).toBeGreaterThan(0);
+  });
+});
+
+describe("automatic run-through (all paths)", () => {
+  it("plays every way out of every decision and judges each path", () => {
+    const m = build(
+      ["s:startEvent", "g:exclusiveGateway", "a:task", "b:task", "j:exclusiveGateway", "e:endEvent"],
+      ["s>g", "g>a?ja", "g>b?nein", "a>j", "b>j", "j>e"],
+    );
+    const { scenarios, truncated } = enumerateScenarios(m);
+    expect(truncated).toBe(false);
+    expect(scenarios.map((s) => s.choices.map((c) => c.label).join())).toEqual(["„g“ = ja", "„g“ = nein"]);
+    expect(scenarios.every((s) => s.outcome === "ok")).toBe(true);
+    // first path: s → g → a → j → e, one element per round
+    expect(scenarios[0].rounds.map((r) => r.map((f) => f.node).join("+"))).toEqual(["s", "g", "a", "j", "e"]);
+  });
+
+  it("advances parallel branches together and marks deadlocks and double runs per path", () => {
+    const and = build(["s:startEvent", "g:parallelGateway", "a:task", "b:task", "j:parallelGateway", "e:endEvent"], ["s>g", "g>a", "g>b", "a>j", "b>j", "j>e"]);
+    const [only] = enumerateScenarios(and).scenarios;
+    expect(only.rounds.map((r) => r.map((f) => f.node).sort().join("+"))).toEqual(["s", "g", "a+b", "j", "e"]);
+    const dl = build(["s:startEvent", "g:exclusiveGateway", "a:task", "b:task", "j:parallelGateway", "e:endEvent"], ["s>g", "g>a?ja", "g>b?nein", "a>j", "b>j", "j>e"]);
+    expect(enumerateScenarios(dl).scenarios.map((s) => `${s.outcome}@${s.problemAt.join()}`)).toEqual(["deadlock@j", "deadlock@j"]);
+    const un = build(["s:startEvent", "g:parallelGateway", "a:task", "b:task", "j:exclusiveGateway", "e:endEvent"], ["s>g", "g>a", "g>b", "a>j", "b>j", "j>e"]);
+    expect(enumerateScenarios(un).scenarios[0].outcome).toBe("unsafe");
+  });
+
+  it("takes a rework loop once and then leaves it", () => {
+    const m = build(["s:startEvent", "a:task", "g:exclusiveGateway", "e:endEvent"], ["s>a", "a>g", "g>a?nochmal", "g>e?fertig"]);
+    const labels = enumerateScenarios(m).scenarios.map((s) => `${s.outcome}:${s.choices.map((c) => c.label).join(" → ")}`);
+    expect(labels).toEqual(["ok:„g“ = nochmal → „g“ = fertig"]);
+  });
+
+  it("finds the same problem as the exhaustive check on the complaint process", () => {
+    const { model } = mapGraphToModel(sanitizeGraphIR(CORPUS.reklamation).ir);
+    const r = enumerateScenarios(model);
+    const bad = r.scenarios.filter((s) => s.outcome !== "ok");
+    expect(bad.length).toBe(1);
+    expect(bad[0].choices.map((c) => c.label).join(" → ")).toContain("„Angebot angenommen?“ = nein");
+    expect(r.scenarios.length).toBe(3);
+  });
+
+  it("covers the tender process with few paths, quickly", () => {
+    const { model } = mapGraphToModel(sanitizeGraphIR(CORPUS.ausschreibung).ir);
+    const t = performance.now();
+    const r = enumerateScenarios(model);
+    expect(performance.now() - t).toBeLessThan(1000);
+    expect(r.truncated).toBe(false);
+    expect(r.scenarios.length).toBeGreaterThan(3);
+    expect(r.scenarios.length).toBeLessThan(16);
+    // every way out of every decision appears in some path
+    const taken = new Set(r.scenarios.flatMap((s) => s.choices.map((c) => c.label)));
+    for (const g of Object.values(model.nodes).filter((n) => n.type === "exclusiveGateway")) {
+      const outFlows = Object.values(model.edges).filter((e) => e.type === "sequenceFlow" && e.source === g.id);
+      if (outFlows.length < 2) continue;
+      expect(outFlows.every((e) => [...taken].some((l) => l.endsWith(`= ${e.name?.trim() || e.condition?.trim() || ""}`) || l.includes(model.nodes[e.target].name ?? "§")))).toBe(true);
+    }
+    expect(r.scenarios.every((s) => s.outcome === "ok" || s.outcome === "loop")).toBe(true);
   });
 });

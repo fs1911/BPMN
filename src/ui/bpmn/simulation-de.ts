@@ -4,7 +4,7 @@
  */
 
 const TEXT: Record<string, string> = {
-  "Token Simulation": "Simulation",
+  "Token Simulation": "Manuell simulieren",
   "Simulation Log": "Ablaufprotokoll",
   "No Entries": "Noch keine Einträge",
   Finished: "Beendet",

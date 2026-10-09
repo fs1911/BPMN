@@ -57,6 +57,7 @@ export function Toolbar() {
         <button onClick={() => store.getState().zoomIn()} title="Vergrößern">＋</button>
         <button onClick={() => store.getState().zoomOut()} title="Verkleinern">－</button>
         <button onClick={() => store.getState().fit()} title="Einpassen">Einpassen</button>
+        <button className="sim-btn" onClick={() => store.getState().setAutoSimOpen(!store.getState().autoSimOpen)} title="Spielt alle Wege durch den Prozess automatisch ab und prüft, ob jeder sauber zum Ende kommt">▶ Simulation</button>
         <label className="tb-toggle" title="Symbole für Benutzer-, Sende-, Service-Aufgaben usw. (Männchen, Briefumschlag, Zahnräder). Der Aufgabentyp bleibt im Modell gespeichert.">
           <input type="checkbox" checked={showTaskTypes} onChange={() => store.getState().toggleTaskTypes()} />
           Aufgabentypen

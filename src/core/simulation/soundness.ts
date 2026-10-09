@@ -1,4 +1,5 @@
 import type { BpmnModel, Edge, FlowNode } from "../model";
+import { type Marking, XOR_LIKE, buildNet } from "./net";
 
 /**
  * Behavioural check of a process ("does it actually run?"), complementing the
@@ -46,8 +47,6 @@ export interface SoundnessResult {
   truncated: boolean;
 }
 
-const NON_FLOW = new Set(["dataObjectReference", "dataStoreReference", "textAnnotation"]);
-const XOR_LIKE = new Set(["exclusiveGateway", "eventBasedGateway"]);
 
 interface Options {
   maxStates?: number;
@@ -78,7 +77,6 @@ export function analyzeSoundness(model: BpmnModel, opts: Options = {}): Soundnes
 
 // ---------------------------------------------------------------------------
 
-type Marking = Map<string, number>; // sequence-flow id → tokens (0, 1, 2 = "two or more")
 
 interface State {
   key: string;
@@ -89,17 +87,9 @@ interface State {
 }
 
 function analyzeScope(model: BpmnModel, scope: string, budget: number, deadline: number): SoundnessResult {
-  const nodes = Object.values(model.nodes).filter((n) => n.parent === scope && !NON_FLOW.has(n.type));
-  const ids = new Set(nodes.map((n) => n.id));
-  const flows = Object.values(model.edges).filter((e) => e.type === "sequenceFlow" && ids.has(e.source) && ids.has(e.target));
-  if (!nodes.length || !flows.length) return { issues: [], states: 0, truncated: false };
-  const ins = new Map<string, Edge[]>(nodes.map((n) => [n.id, []]));
-  const outs = new Map<string, Edge[]>(nodes.map((n) => [n.id, []]));
-  for (const f of flows) {
-    outs.get(f.source)!.push(f);
-    ins.get(f.target)!.push(f);
-  }
-  const node = (id: string) => model.nodes[id];
+  const net = buildNet(model, scope);
+  if (!net) return { issues: [], states: 0, truncated: false };
+  const { nodes, ins, outs, starts, node } = net;
   const label = (id: string) => {
     const n = node(id);
     return n?.name?.trim() ? `„${n.name.trim().replace(/\s+/g, " ")}“` : TYPE_LABEL[n?.type ?? ""] ?? id;
@@ -109,32 +99,10 @@ function analyzeScope(model: BpmnModel, scope: string, budget: number, deadline:
     const n = node(id);
     return n?.name?.trim() ? `„${n.name.trim().replace(/\s+/g, " ")}“` : TYPE_NAME[n?.type ?? ""] ?? id;
   };
-  const boundaries = new Map<string, FlowNode[]>();
-  for (const n of nodes) if (n.type === "boundaryEvent" && n.attachedToRef) (boundaries.get(n.attachedToRef) ?? boundaries.set(n.attachedToRef, []).get(n.attachedToRef)!).push(n);
-  const linkTargets = new Map<string, FlowNode[]>();
+  const linkCatches = new Map<string, FlowNode[]>();
   for (const n of nodes) {
-    if (n.type === "intermediateCatchEvent" && n.eventDefinition === "link") (linkTargets.get(n.name ?? "") ?? linkTargets.set(n.name ?? "", []).get(n.name ?? "")!).push(n);
+    if (n.type === "intermediateCatchEvent" && n.eventDefinition === "link") (linkCatches.get(n.name ?? "") ?? linkCatches.set(n.name ?? "", []).get(n.name ?? "")!).push(n);
   }
-
-  // OR-join: which flows can still deliver a token to incoming flow i (not passing through the join).
-  const upstream = new Map<string, Set<string>>();
-  const canReach = (edge: Edge, join: string): Set<string> => {
-    const key = `${edge.id}|${join}`;
-    if (upstream.has(key)) return upstream.get(key)!;
-    const seen = new Set<string>([edge.id]);
-    const stack = [edge];
-    while (stack.length) {
-      const e = stack.pop()!;
-      if (e.source === join) continue;
-      for (const p of ins.get(e.source) ?? []) if (!seen.has(p.id)) (seen.add(p.id), stack.push(p));
-    }
-    upstream.set(key, seen);
-    return seen;
-  };
-
-  // Starts: start events; without any, nodes without incoming flow.
-  let starts = nodes.filter((n) => n.type === "startEvent");
-  if (!starts.length) starts = nodes.filter((n) => !ins.get(n.id)!.length && n.type !== "boundaryEvent" && !(n.type === "intermediateCatchEvent" && n.eventDefinition === "link"));
 
   const fired = new Set<string>();
   const issues = new Map<string, FlowIssue>(); // dedupe by kind+location
@@ -156,74 +124,8 @@ function analyzeScope(model: BpmnModel, scope: string, budget: number, deadline:
   };
 
   /** All successor markings when node n fires in marking m. */
-  const fire = (n: FlowNode, m: Marking): { marking: Marking; overflow?: Edge; fired: string[] }[] => {
-    const inFlows = ins.get(n.id)!;
-    const outFlows = outs.get(n.id)!;
-    const has = (e: Edge) => (m.get(e.id) ?? 0) > 0;
-    const results: { marking: Marking; overflow?: Edge; fired: string[] }[] = [];
-    const emit = (consume: Edge[], produce: Edge[], extraFired: string[] = []) => {
-      const next = new Map(m);
-      for (const e of consume) next.set(e.id, (next.get(e.id) ?? 0) - 1);
-      let overflow: Edge | undefined;
-      // A terminate end event ends every running path.
-      if (n.type === "endEvent" && n.eventDefinition === "terminate") next.clear();
-      for (const e of produce) {
-        const c = next.get(e.id) ?? 0;
-        if (c >= 1) overflow = e;
-        next.set(e.id, Math.min(2, c + 1));
-      }
-      results.push({ marking: next, overflow, fired: [n.id, ...extraFired] });
-    };
-    // Selections of outgoing flows for a split.
-    const choices = (all: Edge[]): Edge[][] => {
-      if (XOR_LIKE.has(n.type)) return all.map((e) => [e]);
-      const conditional = all.some((e) => e.condition || e.isDefault) || n.type === "inclusiveGateway";
-      if (n.type === "parallelGateway" || !conditional || n.type === "complexGateway") return [all];
-      const def = all.filter((e) => e.isDefault);
-      const rest = all.filter((e) => !e.isDefault);
-      const subsets: Edge[][] = [];
-      if (rest.length <= 6) {
-        for (let mask = 1; mask < 1 << rest.length; mask++) subsets.push(rest.filter((_, i) => mask & (1 << i)));
-      } else {
-        subsets.push(rest, ...rest.map((e) => [e]));
-      }
-      if (def.length) subsets.push(def);
-      return subsets;
-    };
-    const outputs = (): { produce: Edge[]; extra: string[] }[] => {
-      if (n.type === "endEvent") return [{ produce: [], extra: [] }];
-      if (n.type === "intermediateThrowEvent" && n.eventDefinition === "link") {
-        const targets = (linkTargets.get(n.name ?? "") ?? []).flatMap((t) => outs.get(t.id)!.map((e) => ({ e, t: t.id })));
-        return [{ produce: targets.map((x) => x.e), extra: targets.map((x) => x.t) }];
-      }
-      const base = outFlows.length ? choices(outFlows).map((p) => ({ produce: p, extra: [] as string[] })) : [{ produce: [], extra: [] }];
-      const alt: { produce: Edge[]; extra: string[] }[] = [];
-      for (const b of boundaries.get(n.id) ?? []) {
-        const bOut = outs.get(b.id)!;
-        if (b.cancelActivity === false) for (const p of base) alt.push({ produce: [...p.produce, ...bOut], extra: [b.id] });
-        else alt.push({ produce: bOut, extra: [b.id] });
-      }
-      return [...base, ...alt];
-    };
-
-    if (n.type === "parallelGateway" || n.type === "complexGateway") {
-      if (!inFlows.length || !inFlows.every(has)) return results;
-      for (const o of outputs()) emit(inFlows, o.produce, o.extra);
-    } else if (n.type === "inclusiveGateway" && inFlows.length > 1) {
-      const marked = inFlows.filter(has);
-      if (!marked.length) return results;
-      const waiting = inFlows.filter((i) => !has(i)).some((i) => {
-        const up = canReach(i, n.id);
-        return [...m.entries()].some(([e, c]) => c > 0 && up.has(e));
-      });
-      if (waiting) return results;
-      for (const o of outputs()) emit(marked, o.produce, o.extra);
-    } else {
-      // activities, events, XOR / event-based gateways: one token from any incoming flow
-      for (const i of inFlows.filter(has)) for (const o of outputs()) emit([i], o.produce, o.extra);
-    }
-    return results;
-  };
+  const fire = (n: FlowNode, m: Marking): { marking: Marking; overflow?: Edge; fired: string[] }[] =>
+    net.firings(n, m).map((f) => ({ ...net.apply(n, m, f), fired: [n.id, ...f.extra] }));
 
   const explore = (start: FlowNode) => {
     const index = new Map<string, number>();
@@ -386,7 +288,7 @@ function analyzeScope(model: BpmnModel, scope: string, budget: number, deadline:
   if (!truncated) {
     for (const n of nodes) {
       if (fired.has(n.id) || n.type === "boundaryEvent" && !n.attachedToRef) continue;
-      if (n.type === "intermediateCatchEvent" && n.eventDefinition === "link" && (linkTargets.get(n.name ?? "") ?? []).length) {
+      if (n.type === "intermediateCatchEvent" && n.eventDefinition === "link" && (linkCatches.get(n.name ?? "") ?? []).length) {
         // reached via its link throw, if that one fired
         if ([...fired].some((f) => node(f).type === "intermediateThrowEvent" && node(f).name === n.name)) continue;
       }

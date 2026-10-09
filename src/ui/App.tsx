@@ -7,6 +7,7 @@ import { ValidationPanel } from "./components/ValidationPanel";
 import { PreviewBar } from "./components/PreviewBar";
 import { LibraryDialog } from "./components/LibraryDialog";
 import { VersionsDialog } from "./components/VersionsDialog";
+import { AutoSimPanel } from "./components/AutoSimPanel";
 
 export function App() {
   const theme = useEditor((s) => s.theme);
@@ -51,6 +52,7 @@ export function App() {
           <Canvas />
           <PreviewBar />
           <ValidationPanel />
+          <AutoSimPanel />
         </main>
         <aside className="side">
           <AiPanel />

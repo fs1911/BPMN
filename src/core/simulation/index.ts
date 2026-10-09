@@ -3,6 +3,8 @@ import type { ValidationIssue } from "../validation/validator";
 import { analyzeSoundness } from "./soundness";
 
 export { analyzeSoundness } from "./soundness";
+export { enumerateScenarios } from "./scenarios";
+export type { Scenario, ScenarioOutcome, ScenarioResult, SimChoice, SimFiring } from "./scenarios";
 export type { FlowIssue, FlowIssueKind, SoundnessResult } from "./soundness";
 
 /** Simulation findings in the shape of the validation panel. */

@@ -91,6 +91,8 @@ interface EditorState {
   setLibraryOpen: (open: boolean) => void;
   versionsOpen: boolean;
   setVersionsOpen: (open: boolean) => void;
+  autoSimOpen: boolean;
+  setAutoSimOpen: (open: boolean) => void;
   /** make a saved version the current state (the current state is saved as a version first) */
   restoreVersion: (xml: string, number: number) => Promise<void>;
 
@@ -144,6 +146,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   setLibraryOpen: (open) => set({ libraryOpen: open }),
   versionsOpen: false,
   setVersionsOpen: (open) => set({ versionsOpen: open }),
+  autoSimOpen: false,
+  setAutoSimOpen: (open) => set({ autoSimOpen: open }),
 
   restoreVersion: async (xml, number) => {
     const m = get().modeler;
