@@ -17,6 +17,7 @@ export const GRAPH_NODE_TYPES = [
   "endEvent",
   "intermediateCatchEvent",
   "intermediateThrowEvent",
+  "boundaryEvent",
   "task",
   "userTask",
   "serviceTask",
@@ -34,7 +35,7 @@ export const GRAPH_NODE_TYPES = [
 ] as const;
 export type GraphNodeType = (typeof GRAPH_NODE_TYPES)[number];
 
-export const GRAPH_EVENT_KINDS = ["none", "message", "timer", "error", "signal", "terminate"] as const;
+export const GRAPH_EVENT_KINDS = ["none", "message", "timer", "error", "signal", "conditional", "escalation", "terminate"] as const;
 export type GraphEventKind = (typeof GRAPH_EVENT_KINDS)[number];
 
 export interface GraphNodeIR {
@@ -46,6 +47,10 @@ export interface GraphNodeIR {
   event: GraphEventKind;
   /** short verbatim quote from the input that justifies this node ("" for structural nodes). */
   source: string;
+  /** boundaryEvent: id of the activity it sits on ("" for every other node). */
+  attachedTo: string;
+  /** boundaryEvent: whether it stops the activity (true for every other node). */
+  interrupting: boolean;
 }
 
 export interface GraphFlowIR {
@@ -95,7 +100,7 @@ export const GRAPH_IR_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "type", "name", "lane", "event", "source"],
+        required: ["id", "type", "name", "lane", "event", "source", "attachedTo", "interrupting"],
         properties: {
           id: { type: "string" },
           type: { type: "string", enum: [...GRAPH_NODE_TYPES] },
@@ -103,6 +108,8 @@ export const GRAPH_IR_SCHEMA = {
           lane: { type: "string" },
           event: { type: "string", enum: [...GRAPH_EVENT_KINDS] },
           source: { type: "string" },
+          attachedTo: { type: "string" },
+          interrupting: { type: "boolean" },
         },
       },
     },
@@ -166,13 +173,23 @@ const GRAPH_RULES = `Faithfulness
 
 Structure
 - Exactly one start event unless the text describes several distinct triggers. Name it after the trigger ("Reklamation eingegangen"). Use event "message" for incoming requests/mails/orders, "timer" for time-based triggers.
-- Every path must end in an end event. Give different outcomes their own end events with outcome names ("Ersatzgerät versendet", "Angebot abgelehnt").
+- Every path must end in an end event; a process with a start event has at least one end event. Give different outcomes their own end events with outcome names ("Ersatzgerät versendet", "Angebot abgelehnt").
 - Decisions: an exclusiveGateway named as a short question ("Garantiefall?"). Each outgoing flow carries a short condition label ("ja"/"nein" or the concrete outcome). Each branch contains its own activities.
 - When alternative branches continue with a common next step, merge them with an unnamed exclusiveGateway join.
 - Work that happens at the same time ("gleichzeitig", "parallel", "währenddessen", "in the meantime") uses an unnamed parallelGateway split AND a matching parallelGateway join before the flow continues. Only parallel split flows have an empty condition.
 - Rework ("zurück an", "erneut", "until complete") is a flow back to the earlier node where the work is redone. Flows merge only at gateways: where several flows lead into the same step (e.g. a rework loop returning), put an unnamed exclusiveGateway join directly before that step. A gateway either splits or joins, never both.
-- Use inclusiveGateway only when the text says one or more of several options apply.
-- Wait for an external reply/deadline: intermediateCatchEvent (event "message" or "timer").
+- Rework jumps back only as far as the work that is really redone. Do not jump back in front of a parallelGateway split unless every parallel branch must run again (that repeats orders, plans, …); if the text says so, note it in "assumptions".
+- Use inclusiveGateway only when the text says one or more of several options apply. Split: each option is a flow with its condition; if "none of them" is possible, add a default flow (isDefault: true) for that case. Join the branches with a matching unnamed inclusiveGateway.
+- A default flow (isDefault: true) only leaves an exclusiveGateway or inclusiveGateway, at most one per gateway, for the "otherwise" case.
+- Wait for an external reply/deadline in the flow: intermediateCatchEvent (event "message", "timer", "signal" or "conditional") with exactly one incoming and one outgoing flow.
+- Waiting for whichever of several events comes first: eventBasedGateway with at least two outgoing flows WITHOUT conditions, each leading directly to an intermediateCatchEvent (message, timer, signal or conditional) that has no other incoming flow.
+
+Exceptions during an activity (ISO/IEC 19510, 10.5.4)
+- Something that happens WHILE an activity runs (a report, a deadline, an error, a cancellation) is a boundaryEvent: "attachedTo" = id of that activity, "lane" = its lane, "event" = message / timer / error / signal / conditional / escalation (never "none" or "terminate").
+- "interrupting": true stops the activity (the exception path replaces it). false lets it continue in parallel — only for message, timer, signal, conditional and escalation; error is always interrupting.
+- A boundaryEvent never has an incoming flow and has at least one outgoing flow: the exception path, which ends in an end event or leads back into the process (e.g. back to the interrupted activity to restart it).
+- Errors appear only as boundaryEvent or as endEvent with event "error", never as an event in the middle of the flow.
+- For every other node "attachedTo" is "" and "interrupting" is true.
 
 Naming
 - Activities: object + verb in the input language, 2–5 words, no actor ("Anforderung prüfen", "Ersatzgerät versenden" / "Check request"). The actor is expressed by the lane.

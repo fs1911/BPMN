@@ -18,6 +18,8 @@ export function simulationIssues(model: BpmnModel): ValidationIssue[] {
     elementId: i.elementIds[0],
     relatedIds: i.elementIds.slice(1),
     trace: i.trace.length ? i.trace : undefined,
+    // deadlock and lack of synchronisation are defined in ISO 19510, 14.1
+    norm: i.kind === "deadlock" || i.kind === "unsafe" ? "14.1" : undefined,
   }));
   if (r.truncated) {
     issues.push({

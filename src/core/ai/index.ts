@@ -19,6 +19,8 @@ export {
 } from "./graph";
 export type { GraphIR, GraphNodeIR, GraphFlowIR } from "./graph";
 export { editViaLlm, generateViaLlm, LlmUnavailableError } from "./remote";
+export type { GenerateOptions } from "./remote";
+export { buildCorrectionInstruction, normViolations } from "./correct";
 export type { EditResult, LlmCallOptions, LlmProgress, GenerationResultGraph } from "./remote";
 export { applyEditedGraph, diffGraphs, modelToGraphIR } from "./edit";
 export { MAX_INSTRUCTION_CHARS, MAX_TEXT_CHARS } from "./graph-schema";

@@ -17,6 +17,9 @@ import { initialXml } from "@ui/bpmn/bridge";
 import { StoredProcess, newId } from "@core/library/library";
 import { addVersion, deleteProcess, getLastOpened, getProcess, listProcesses, putProcess, requestPersistence, setLastOpened } from "@ui/library/db";
 
+/** localStorage key of the self-correction switch (read when the store is created) */
+const SELF_CORRECT_KEY = "flowcraft.selfCorrect";
+
 const SAMPLE_TEXT = `Wenn eine Bestellanforderung eingeht, erfasst der Sachbearbeiter sie im System.
 Der Einkäufer prüft die Anforderung auf Vollständigkeit.
 Wenn die Anforderung unvollständig ist, zurück an den Antragsteller senden.
@@ -92,6 +95,9 @@ interface EditorState {
   versionsOpen: boolean;
   setVersionsOpen: (open: boolean) => void;
   autoSimOpen: boolean;
+  /** send violations of the standard back to the AI once after generating (costs a second call) */
+  selfCorrect: boolean;
+  setSelfCorrect: (on: boolean) => void;
   setAutoSimOpen: (open: boolean) => void;
   /** make a saved version the current state (the current state is saved as a version first) */
   restoreVersion: (xml: string, number: number) => Promise<void>;
@@ -148,6 +154,11 @@ export const useEditor = create<EditorState>((set, get) => ({
   setVersionsOpen: (open) => set({ versionsOpen: open }),
   autoSimOpen: false,
   setAutoSimOpen: (open) => set({ autoSimOpen: open }),
+  selfCorrect: readFlag(SELF_CORRECT_KEY),
+  setSelfCorrect: (on) => {
+    writeFlag(SELF_CORRECT_KEY, on);
+    set({ selfCorrect: on });
+  },
 
   restoreVersion: async (xml, number) => {
     const m = get().modeler;
@@ -504,9 +515,20 @@ export const useEditor = create<EditorState>((set, get) => ({
       let result: { model: BpmnModel; review: ai.ReviewReport };
       let fallbackNote = "";
       try {
+        let correcting = false;
         result = await ai.generateViaLlm(text, {
-          onProgress: (p) =>
-            set({ aiProgress: p.phase === "thinking" ? "KI analysiert den Text…" : `KI schreibt das Modell… (${p.chars ?? 0} Zeichen)` }),
+          selfCorrect: get().selfCorrect,
+          onProgress: (p) => {
+            if (p.phase === "correcting") correcting = true;
+            set({
+              aiProgress:
+                p.phase === "correcting"
+                  ? `KI korrigiert ${p.violations} Normverstoss/-verstösse…`
+                  : correcting
+                    ? p.phase === "thinking" ? "KI plant die Korrektur…" : `KI schreibt das korrigierte Modell… (${p.chars ?? 0} Zeichen)`
+                    : p.phase === "thinking" ? "KI analysiert den Text…" : `KI schreibt das Modell… (${p.chars ?? 0} Zeichen)`,
+            });
+          },
         });
       } catch (err) {
         // Offline / no key / API failure: fall back to the rule-based extractor, but say so.
@@ -696,3 +718,18 @@ export async function markPristine(): Promise<void> {
 useEditor.subscribe((s, prev) => {
   if (s.aiReview !== prev.aiReview || s.pending !== prev.pending) s.noteChange();
 });
+
+function readFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+function writeFlag(key: string, on: boolean): void {
+  try {
+    localStorage.setItem(key, on ? "1" : "0");
+  } catch {
+    /* private mode: the setting lasts for this session only */
+  }
+}

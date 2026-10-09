@@ -131,6 +131,9 @@ textarea { resize: vertical; }
 .import-note { font-size: 12px; margin: 4px 0; padding: 6px 8px; border-radius: 6px; background: var(--surface-2); line-height: 1.35; }
 .import-note.error, .char-count.error { color: var(--error); }
 .char-count { font-size: 11px; color: var(--muted); text-align: right; margin: 0 0 8px; }
+.self-correct { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; color: var(--muted); margin: 8px 0 4px; line-height: 1.35; cursor: pointer; }
+.self-correct input { margin-top: 2px; width: auto; flex: none; padding: 0; }
+.self-correct span { flex: 1; }
 .ai-generate h4 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; color: var(--muted); }
 .ai-generate .row { display: flex; gap: 6px; }
 .ai-generate .row button { flex: none; }
@@ -261,6 +264,8 @@ html[data-theme="dark"] .bjs-properties { color: #1c2530; background: #fff; }
 .toast.error { background: var(--error); }
 
 .vi-tag { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 1px 5px; margin-right: 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); vertical-align: 1px; }
+.vi-tag.norm { background: var(--border); color: var(--text); text-transform: none; }
+.vi-tag.style { background: transparent; border: 1px solid var(--border); color: var(--muted); }
 .vi-trace { margin-top: 3px; font-size: 11px; color: var(--muted); line-height: 1.3; }
 
 /* Version comparison */

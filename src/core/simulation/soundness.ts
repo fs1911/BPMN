@@ -1,5 +1,6 @@
 import type { BpmnModel, Edge, FlowNode } from "../model";
 import { type Marking, XOR_LIKE, buildNet } from "./net";
+import { namer } from "./names";
 
 /**
  * Behavioural check of a process ("does it actually run?"), complementing the
@@ -90,15 +91,7 @@ function analyzeScope(model: BpmnModel, scope: string, budget: number, deadline:
   const net = buildNet(model, scope);
   if (!net) return { issues: [], states: 0, truncated: false };
   const { nodes, ins, outs, starts, node } = net;
-  const label = (id: string) => {
-    const n = node(id);
-    return n?.name?.trim() ? `„${n.name.trim().replace(/\s+/g, " ")}“` : TYPE_LABEL[n?.type ?? ""] ?? id;
-  };
-  /** Name for lists (nominative): "„Antrag prüfen“" or "Paralleles Gateway". */
-  const name = (id: string) => {
-    const n = node(id);
-    return n?.name?.trim() ? `„${n.name.trim().replace(/\s+/g, " ")}“` : TYPE_NAME[n?.type ?? ""] ?? id;
-  };
+  const { label, name } = namer(net);
   const linkCatches = new Map<string, FlowNode[]>();
   for (const n of nodes) {
     if (n.type === "intermediateCatchEvent" && n.eventDefinition === "link") (linkCatches.get(n.name ?? "") ?? linkCatches.set(n.name ?? "", []).get(n.name ?? "")!).push(n);
@@ -324,23 +317,3 @@ function analyzeScope(model: BpmnModel, scope: string, budget: number, deadline:
   }
   return { issues: [...issues.values()], states: statesOut.length, truncated };
 }
-
-const TYPE_NAME: Record<string, string> = {
-  exclusiveGateway: "XOR-Gateway",
-  parallelGateway: "Paralleles Gateway",
-  inclusiveGateway: "ODER-Gateway",
-  eventBasedGateway: "Ereignis-Gateway",
-  complexGateway: "Komplexes Gateway",
-  endEvent: "Ende",
-  startEvent: "Start",
-};
-
-const TYPE_LABEL: Record<string, string> = {
-  exclusiveGateway: "dem XOR-Gateway",
-  parallelGateway: "dem parallelen Gateway",
-  inclusiveGateway: "dem ODER-Gateway",
-  eventBasedGateway: "dem ereignisbasierten Gateway",
-  complexGateway: "dem komplexen Gateway",
-  endEvent: "dem Endereignis",
-  startEvent: "dem Startereignis",
-};

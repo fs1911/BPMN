@@ -29,7 +29,7 @@ export function randomProcess(n: number, unstructured: boolean): GraphIR {
   };
   const node = (type: GraphIR["nodes"][number]["type"], name = "", event: GraphIR["nodes"][number]["event"] = "none") => {
     const nid = `n${id++}`;
-    nodes.push({ id: nid, type, name, lane: nextLane(), event, source: "" });
+    nodes.push({ id: nid, type, name, lane: nextLane(), event, source: "", attachedTo: "", interrupting: true });
     return nid;
   };
   const flow = (from: string, to: string, condition = "") => flows.push({ from, to, condition, isDefault: false });

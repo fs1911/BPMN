@@ -33,6 +33,21 @@ export interface SanitizeResult {
 }
 
 const NODE_TYPE_SET = new Set<string>(GRAPH_NODE_TYPES);
+const ACTIVITY_TYPES = new Set<string>(GRAPH_NODE_TYPES.filter((t) => t.endsWith("Task") || t === "task" || t === "subProcess" || t === "callActivity"));
+/** Triggers that may leave the activity running (ISO 19510, 10.5.4 / 13.5.3). */
+const NON_INTERRUPTING = new Set<string>(["message", "timer", "signal", "conditional", "escalation"]);
+
+/** A node the sanitizer or merge normalisation adds (no source text). */
+export const structural = (id: string, type: GraphNodeType, name = "", lane = ""): GraphNodeIR => ({
+  id,
+  type,
+  name,
+  lane,
+  event: "none",
+  source: "",
+  attachedTo: "",
+  interrupting: true,
+});
 const EVENT_SET = new Set<string>(GRAPH_EVENT_KINDS);
 
 /** Ids end up as XML ids in the BPMN file: make them valid NCNames. */
@@ -77,7 +92,41 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
     const lane = laneIds.has(xmlId(str(o.lane))) ? xmlId(str(o.lane)) : "";
     const event = EVENT_SET.has(str(o.event)) ? (str(o.event) as GraphEventKind) : "none";
     nodeIds.add(id);
-    nodes.push({ id, type: type as GraphNodeType, name: str(o.name), lane, event, source: str(o.source) });
+    nodes.push({
+      id,
+      type: type as GraphNodeType,
+      name: str(o.name),
+      lane,
+      event,
+      source: str(o.source),
+      attachedTo: type === "boundaryEvent" ? xmlId(str(o.attachedTo)) : "",
+      interrupting: type !== "boundaryEvent" || o.interrupting !== false,
+    });
+  }
+
+  // Boundary events (ISO 19510, 10.5.4): on an activity of the process, with
+  // a trigger allowed there; only some triggers may leave the activity running.
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (const n of nodes) {
+    if (n.type !== "boundaryEvent") continue;
+    const label = `„${n.name || n.id}“`;
+    const host = byId.get(n.attachedTo);
+    if (!host || !ACTIVITY_TYPES.has(host.type)) {
+      n.type = "intermediateCatchEvent";
+      n.attachedTo = "";
+      n.interrupting = true;
+      repairs.push(`Grenzereignis ${label} hängt an keiner Aktivität – als Zwischenereignis im Ablauf modelliert.`);
+      continue;
+    }
+    n.lane = host.lane;
+    if (n.event === "terminate") {
+      n.event = "none";
+      repairs.push(`Grenzereignis ${label}: Terminierung ist am Rand einer Aktivität nicht möglich – Auslöser entfernt.`);
+    }
+    if (!n.interrupting && !NON_INTERRUPTING.has(n.event)) {
+      n.interrupting = true;
+      repairs.push(`Grenzereignis ${label} als unterbrechend modelliert – dieser Auslöser kann die Aktivität nicht weiterlaufen lassen.`);
+    }
   }
 
   const flows: GraphFlowIR[] = [];
@@ -91,6 +140,10 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
       continue;
     }
     if (from === to || seen.has(`${from}>${to}`)) continue;
+    if (nodes.find((n) => n.id === to)?.type === "boundaryEvent") {
+      repairs.push(`Fluss ${from} → ${to} führt in ein Grenzereignis und wurde entfernt (Grenzereignisse haben keinen Eingang).`);
+      continue;
+    }
     seen.add(`${from}>${to}`);
     flows.push({ from, to, condition: str(o.condition), isDefault: o.isDefault === true });
   }
@@ -111,9 +164,9 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
 
   // Start: if none, attach one to every node without an incoming flow.
   if (!nodes.some((n) => n.type === "startEvent") && nodes.length) {
-    const roots = nodes.filter((n) => !incoming(n.id));
+    const roots = nodes.filter((n) => !incoming(n.id) && n.type !== "boundaryEvent");
     const id = freshId("start");
-    nodes.unshift({ id, type: "startEvent", name: de ? "Start" : "Start", lane: "", event: "none", source: "" });
+    nodes.unshift(structural(id, "startEvent", de ? "Start" : "Start"));
     for (const t of roots.length ? roots : [nodes[1]]) flows.push({ from: id, to: t.id, condition: "", isDefault: false });
     repairs.push("Kein Startereignis vorhanden – eines wurde ergänzt.");
   }
@@ -122,7 +175,7 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
   const dangling = nodes.filter((n) => n.type !== "endEvent" && !outgoing(n.id));
   if (dangling.length) {
     const id = freshId("end");
-    nodes.push({ id, type: "endEvent", name: de ? "Ende" : "End", lane: "", event: "none", source: "" });
+    nodes.push(structural(id, "endEvent", de ? "Ende" : "End"));
     for (const d of dangling) flows.push({ from: d.id, to: id, condition: "", isDefault: false });
     repairs.push(
       `${dangling.length} Pfad(e) ohne Abschluss (${dangling.map((d) => `„${d.name || d.id}“`).join(", ")}) an ein ergänztes Endereignis angeschlossen.`,
@@ -175,7 +228,7 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
 // ---------------------------------------------------------------------------
 // Mapping
 
-const EVENT_TYPES = new Set<GraphNodeType>(["startEvent", "endEvent", "intermediateCatchEvent", "intermediateThrowEvent"]);
+const EVENT_TYPES = new Set<GraphNodeType>(["startEvent", "endEvent", "intermediateCatchEvent", "intermediateThrowEvent", "boundaryEvent"]);
 
 /** Map a sanitized GraphIR to a laid-out BpmnModel plus a review report. */
 export interface MapGraphOptions {
@@ -208,7 +261,7 @@ export function normalizeMerges(ir: GraphIR): GraphIR {
     let id = `${n.id}_join`;
     for (let k = 2; ids.has(id); k++) id = `${n.id}_join${k}`;
     ids.add(id);
-    out.nodes.push({ id, type: "exclusiveGateway", name: "", lane: n.lane, event: "none", source: "" });
+    out.nodes.push(structural(id, "exclusiveGateway", "", n.lane));
     for (const f of incoming) f.to = id;
     out.flows.push({ from: id, to: n.id, condition: "", isDefault: false });
   }
@@ -236,15 +289,19 @@ export function mapGraphToModel(irIn: GraphIR, opts: MapGraphOptions = {}): Mapp
   for (const p of ir.pools) poolMap[p.id] = createParticipant(model, { id: opts.keepIds ? p.id : undefined, name: p.name }).id;
 
   const idMap: Record<string, string> = {};
-  for (const n of ir.nodes) {
+  // Boundary events last: their host must exist first.
+  const ordered = [...ir.nodes.filter((n) => n.type !== "boundaryEvent"), ...ir.nodes.filter((n) => n.type === "boundaryEvent")];
+  for (const n of ordered) {
     const eventDefinition: EventDefinitionType | undefined =
       EVENT_TYPES.has(n.type) && n.event !== "none" ? n.event : undefined;
+    const host = n.type === "boundaryEvent" ? model.nodes[idMap[n.attachedTo]] : undefined;
     const node = createNode(model, n.type, {
       id: opts.keepIds ? n.id : undefined,
       name: n.name || undefined,
       eventDefinition,
-      lane: laneMap[n.lane],
+      lane: host ? host.lane : laneMap[n.lane],
       provenance: n.source || undefined,
+      ...(host ? { attachedToRef: host.id, cancelActivity: n.interrupting ? undefined : false } : {}),
     });
     idMap[n.id] = node.id;
     if (n.source) provenance[node.id] = n.source;
@@ -296,7 +353,7 @@ export function mapGraphToModel(irIn: GraphIR, opts: MapGraphOptions = {}): Mapp
     dataObjects: ir.dataObjects,
     decisions,
     loops,
-    exceptions: ir.nodes.filter((n) => n.event === "error").map((n) => n.name),
+    exceptions: ir.nodes.filter((n) => n.event === "error" || n.type === "boundaryEvent").map((n) => n.name),
     approvals: ir.nodes.filter((n) => /freigab|freigeb|genehmig|approv/i.test(n.name) && !n.type.endsWith("Gateway")).map((n) => n.name),
     checks: ir.nodes.filter((n) => /prüf|kontroll|check|verif|review/i.test(n.name) && !n.type.endsWith("Gateway")).map((n) => n.name),
     assumptions: ir.assumptions,

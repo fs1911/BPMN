@@ -88,6 +88,16 @@ deterministic — nothing is invented. Element documentation (properties panel �
 svg2pdf, A4/A3 landscape by size) plus the description as tables (jsPDF +
 autotable), with a running footer. The PDF libraries are loaded on demand.
 
+## Simulation and the standard (`src/core/simulation`, `src/core/validation`)
+
+`net.ts` holds the token rules of ISO/IEC 19510, clause 13 (OR join by
+table 13.3, activity splits by 13.3.1, complex gateway like an OR join), shared
+by the exhaustive check (`soundness.ts`) and the run-through (`scenarios.ts`);
+`names.ts` names unnamed elements by their place. `validator.ts` tags every
+rule of the standard with its clause (`norm`) and recommendations with
+`style`; the panel shows "Norm …" / "Stil". Regression cases: `test/norm.test.ts`
+and the real process `BAUETAPPE` in `test/fixtures/processes.ts`.
+
 ## AI pipeline (`src/core/ai`)
 
 **LLM path (primary).** `remote.ts` posts the text to `server/llm.ts` (Cloudflare
@@ -104,11 +114,23 @@ LLM only emits JSON; it never writes BPMN or touches the canvas.
 real element ids (`modelToGraphIR`); the server sends it with the
 instruction under a separate edit prompt (same modelling rules, "smallest
 change, keep ids"); `applyEditedGraph` maps the returned IR with those ids,
-carries over what the IR does not hold (documentation, markers, boundary
-events and their flows) and passes the previous vertical positions to the
+carries over what the IR does not hold (documentation, markers, event
+triggers outside the AI format such as link or compensation) and passes the previous vertical positions to the
 layout as its first crossing-reduction start (`preferOrder`) — ties keep the
 old arrangement. `diffGraphs` yields added/changed/removed ids for the preview
 highlight and the chat summary.
+
+**Boundary events.** Nodes of type `boundaryEvent` carry `attachedTo`
+(activity id) and `interrupting`; the sanitizer enforces ISO/IEC 19510,
+10.5.4 (host must be an activity, no incoming flow, error and other triggers
+always interrupting) and records every repair. The layout ranks the
+exception path as if it started at the host (temporary proxy flows in
+`layoutScope`), so it sits behind the activity instead of at the far left.
+
+**Self-correction.** `correct.ts`: `normViolations` = errors with a clause of
+the standard (rule checks + simulation deadlock / double run, 14.1). With the
+switch on, `generateViaLlm` sends them once as an edit instruction and keeps
+the result only if it has fewer violations; the review says what happened.
 
 **Offline path (fallback).** `extract.ts` (rule-based NL → step-list IR) →
 `map.ts`. The step-list IR can only express a linear main path whose branches

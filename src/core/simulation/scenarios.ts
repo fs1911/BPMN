@@ -1,5 +1,6 @@
 import type { BpmnModel, Edge, FlowNode } from "../model";
 import { type Firing, type Marking, type ScopeNet, buildNet } from "./net";
+import { namer } from "./names";
 
 /**
  * Automatic run-through: plays the process along every combination of
@@ -87,18 +88,12 @@ export function enumerateScenarios(model: BpmnModel, opts: Options = {}): Scenar
 function runFrom(net: ScopeNet, start: FlowNode, budget: number, maxRounds: number): { scenarios: Scenario[]; truncated: boolean } {
   const { node, outs } = net;
   const out: Scenario[] = [];
-  const name = (id: string) => {
-    const n = node(id);
-    return n?.name?.trim() ? `„${n.name.trim().replace(/\s+/g, " ")}“` : TYPE_NAME[n?.type ?? ""] ?? id;
-  };
-  /** "bei „Antrag prüfen“" / "beim parallelen Gateway" */
-  const at = (id: string) => {
-    const n = node(id);
-    return n?.name?.trim() ? `bei „${n.name.trim().replace(/\s+/g, " ")}“` : AT[n?.type ?? ""] ?? `bei ${id}`;
-  };
+  const { name, at } = namer(net);
   const wayKey = (f: Firing) => [...f.produce.map((e) => e.id), ...f.extra].sort().join("+");
   const wayLabel = (n: FlowNode, f: Firing) => {
     if (f.extra.length && node(f.extra[0])?.type === "boundaryEvent") return `${name(n.id)}: ${name(f.extra[0])} tritt ein`;
+    // an activity whose only alternative is a boundary event: it simply finishes
+    if (!n.type.endsWith("Gateway") && !f.extra.length && !f.produce.some((e) => e.condition || e.isDefault)) return `${name(n.id)} regulär beendet`;
     const text = f.produce.map((e) => e.name?.trim() || e.condition?.trim() || name(e.target)).join(" + ");
     return `${name(n.id)} = ${text || "Ende"}`;
   };
@@ -106,7 +101,7 @@ function runFrom(net: ScopeNet, start: FlowNode, budget: number, maxRounds: numb
   // All ways out of every decision (static), to know what is still uncovered.
   const decisionWays = new Map<string, Set<string>>();
   const covered = new Set<string>(); // "node|way"
-  const isDecision = (n: FlowNode) => outs.get(n.id)!.length > 1 && n.type !== "parallelGateway" && n.type !== "complexGateway";
+  const isDecision = (n: FlowNode) => outs.get(n.id)!.length > 1 && n.type !== "parallelGateway";
   const uncoveredAt = (id: string) => {
     const ways = decisionWays.get(id);
     return !!ways && [...ways].some((w) => !covered.has(`${id}|${w}`));
@@ -225,7 +220,7 @@ function runFrom(net: ScopeNet, start: FlowNode, budget: number, maxRounds: numb
         const stuck = [...new Set([...marking.keys()].map((e) => findEdge(net, e)?.target).filter((x): x is string => !!x))];
         const earlyEnd = rounds.flat().find((f) => node(f.node).type === "endEvent");
         const why = earlyEnd ? ` – ein paralleler Pfad endete vorher bei ${name(earlyEnd.node)}` : "";
-        return done("deadlock", stuck, `Bleibt ${stuck.map(at).join(", ")} stehen${why}. Der Prozess kommt nicht zum Ende.`);
+        return done("deadlock", stuck, `Bleibt ${[...new Set(stuck.map(at))].join(" und ")} stehen${why}. Der Prozess kommt nicht zum Ende.`);
       }
       marking = next;
       rounds.push(round);
@@ -260,22 +255,3 @@ function findEdge(net: ScopeNet, id: string): Edge | undefined {
   for (const list of net.outs.values()) for (const e of list) if (e.id === id) return e;
   return undefined;
 }
-
-const AT: Record<string, string> = {
-  exclusiveGateway: "beim XOR-Gateway",
-  parallelGateway: "beim parallelen Gateway",
-  inclusiveGateway: "beim ODER-Gateway",
-  eventBasedGateway: "beim Ereignis-Gateway",
-  complexGateway: "beim komplexen Gateway",
-  endEvent: "beim Endereignis",
-};
-
-const TYPE_NAME: Record<string, string> = {
-  exclusiveGateway: "XOR-Gateway",
-  parallelGateway: "Paralleles Gateway",
-  inclusiveGateway: "ODER-Gateway",
-  eventBasedGateway: "Ereignis-Gateway",
-  complexGateway: "Komplexes Gateway",
-  endEvent: "Ende",
-  startEvent: "Start",
-};

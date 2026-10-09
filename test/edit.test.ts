@@ -21,7 +21,7 @@ function insertApproval(before: GraphIR): GraphIR {
   const check = byName(ir, "Rechnung prüfen");
   const flow = ir.flows.find((f) => f.from === check.id)!;
   ir.lanes.push({ id: "new_lane", name: "Teamleitung" });
-  ir.nodes.push({ id: "new1", type: "userTask", name: "Rechnung freigeben", lane: "new_lane", event: "none", source: "Freigabe durch die Teamleitung" });
+  ir.nodes.push({ id: "new1", type: "userTask", name: "Rechnung freigeben", lane: "new_lane", event: "none", source: "Freigabe durch die Teamleitung", attachedTo: "", interrupting: true });
   ir.flows.push({ from: "new1", to: flow.to, condition: "", isDefault: false });
   flow.to = "new1";
   return ir;

@@ -6,11 +6,19 @@ import type { BpmnModel, Edge, FlowNode } from "../model";
  * exactly the same rules.
  *
  * A marking counts tokens per sequence flow (0, 1, 2 = "two or more").
- * Activities and events consume one token from any incoming flow and produce
- * one per outgoing flow (conditional flows: any non-empty selection); XOR /
- * event-based gateways pass one token to exactly one outgoing flow; AND
- * gateways wait for all incoming and fire all outgoing; OR gateways split into
- * any non-empty selection and join when no further token can still arrive.
+ * The rules follow ISO/IEC 19510 (BPMN 2.0.1), clause 13:
+ * - Activities and events consume one token from any incoming flow (13.3.1:
+ *   several incoming flows act like an XOR merge). Outgoing flows without a
+ *   condition always get a token; flows with a condition any selection; the
+ *   default flow only when no condition holds.
+ * - XOR / event-based gateways pass one token to exactly one outgoing flow.
+ * - AND gateways wait for all incoming flows and fire all outgoing (13.4.1).
+ * - OR gateways split into any non-empty selection (or the default alone) and
+ *   join by table 13.3: they wait only for a token that can still reach an
+ *   empty incoming flow AND cannot reach one that already holds a token.
+ * - Complex gateways have an activation expression the diagram does not
+ *   carry; they are treated like OR gateways, whose synchronisation they use
+ *   for their reset (10.6.5).
  * Boundary events are alternative (interrupting) or additional
  * (non-interrupting) outcomes of their host; link events jump by name; a
  * terminate end event ends every path.
@@ -41,6 +49,21 @@ export interface ScopeNet {
 export const NON_FLOW = new Set(["dataObjectReference", "dataStoreReference", "textAnnotation"]);
 export const XOR_LIKE = new Set(["exclusiveGateway", "eventBasedGateway"]);
 
+/**
+ * Selections of a set of flows: every subset (with or without the empty one);
+ * for more than 6 flows only all, none and each single flow, to stay small.
+ */
+function selections(flows: Edge[], withEmpty: boolean): Edge[][] {
+  const out: Edge[][] = withEmpty ? [[]] : [];
+  if (!flows.length) return out;
+  if (flows.length <= 6) {
+    for (let mask = 1; mask < 1 << flows.length; mask++) out.push(flows.filter((_, i) => mask & (1 << i)));
+  } else {
+    out.push(flows, ...flows.map((e) => [e]));
+  }
+  return out;
+}
+
 export function buildNet(model: BpmnModel, scope: string): ScopeNet | undefined {
   const nodes = Object.values(model.nodes).filter((n) => n.parent === scope && !NON_FLOW.has(n.type));
   const ids = new Set(nodes.map((n) => n.id));
@@ -53,6 +76,7 @@ export function buildNet(model: BpmnModel, scope: string): ScopeNet | undefined 
     ins.get(f.target)!.push(f);
   }
   const node = (id: string) => model.nodes[id];
+  const edgeById = new Map(flows.map((f) => [f.id, f]));
   const group = (list: FlowNode[], key: (n: FlowNode) => string | undefined) => {
     const m = new Map<string, FlowNode[]>();
     for (const n of list) {
@@ -64,21 +88,30 @@ export function buildNet(model: BpmnModel, scope: string): ScopeNet | undefined 
   const boundaries = group(nodes, (n) => (n.type === "boundaryEvent" ? n.attachedToRef : undefined));
   const linkTargets = group(nodes, (n) => (n.type === "intermediateCatchEvent" && n.eventDefinition === "link" ? n.name ?? "" : undefined));
 
-  // OR-join: which flows can still deliver a token to incoming flow i (not passing through the join).
-  const upstream = new Map<string, Set<string>>();
-  const canReach = (edge: Edge, join: string): Set<string> => {
+  // OR-join (table 13.3): the incoming flows of `join` a token on `edge` can
+  // still reach, along paths that do not pass through the join itself.
+  const reachIns = new Map<string, Set<string>>();
+  const joinInputsReached = (edge: Edge, join: string): Set<string> => {
     const key = `${edge.id}|${join}`;
-    if (upstream.has(key)) return upstream.get(key)!;
+    const cached = reachIns.get(key);
+    if (cached) return cached;
+    const reached = new Set<string>();
     const seen = new Set<string>([edge.id]);
     const stack = [edge];
     while (stack.length) {
       const e = stack.pop()!;
-      if (e.source === join) continue;
-      for (const p of ins.get(e.source) ?? []) if (!seen.has(p.id)) (seen.add(p.id), stack.push(p));
+      if (e.target === join) {
+        reached.add(e.id);
+        continue;
+      }
+      for (const nx of outs.get(e.target) ?? []) if (!seen.has(nx.id)) (seen.add(nx.id), stack.push(nx));
+      // a boundary event of the target can also pass the token on
+      for (const b of boundaries.get(e.target) ?? []) for (const nx of outs.get(b.id) ?? []) if (!seen.has(nx.id)) (seen.add(nx.id), stack.push(nx));
     }
-    upstream.set(key, seen);
-    return seen;
+    reachIns.set(key, reached);
+    return reached;
   };
+  const isOrLike = (n: FlowNode) => n.type === "inclusiveGateway" || n.type === "complexGateway";
 
   let starts = nodes.filter((n) => n.type === "startEvent");
   if (!starts.length) {
@@ -92,18 +125,20 @@ export function buildNet(model: BpmnModel, scope: string): ScopeNet | undefined 
     // Selections of outgoing flows for a split.
     const choices = (all: Edge[]): Edge[][] => {
       if (XOR_LIKE.has(n.type)) return all.map((e) => [e]);
-      const conditional = all.some((e) => e.condition || e.isDefault) || n.type === "inclusiveGateway";
-      if (n.type === "parallelGateway" || !conditional || n.type === "complexGateway") return [all];
+      if (n.type === "parallelGateway") return [all];
       const def = all.filter((e) => e.isDefault);
-      const rest = all.filter((e) => !e.isDefault);
-      const subsets: Edge[][] = [];
-      if (rest.length <= 6) {
-        for (let mask = 1; mask < 1 << rest.length; mask++) subsets.push(rest.filter((_, i) => mask & (1 << i)));
-      } else {
-        subsets.push(rest, ...rest.map((e) => [e]));
+      if (isOrLike(n)) {
+        // every flow is a choice; the default only when no other is taken
+        const rest = all.filter((e) => !e.isDefault);
+        return [...selections(rest, false), ...(def.length ? [def] : [])];
       }
-      if (def.length) subsets.push(def);
-      return subsets;
+      // Activity / event (13.3.1): flows without a condition always run, flows
+      // with a condition in any selection, the default only if none of them does.
+      const cond = all.filter((e) => e.condition && !e.isDefault);
+      if (!cond.length && !def.length) return [all];
+      const always = all.filter((e) => !e.condition && !e.isDefault);
+      const result = selections(cond, true).map((sel) => [...always, ...sel, ...(sel.length ? [] : def)]);
+      return result.filter((r) => r.length);
     };
     const outputs = (): { produce: Edge[]; extra: string[] }[] => {
       if (n.type === "endEvent") return [{ produce: [], extra: [] }];
@@ -122,18 +157,25 @@ export function buildNet(model: BpmnModel, scope: string): ScopeNet | undefined 
     };
 
     const result: Firing[] = [];
-    if (n.type === "parallelGateway" || n.type === "complexGateway") {
+    if (n.type === "parallelGateway") {
       if (!inFlows.length || !inFlows.every(has)) return result;
       for (const o of outputs()) result.push({ consume: inFlows, ...o });
-    } else if (n.type === "inclusiveGateway" && inFlows.length > 1) {
+    } else if (isOrLike(n) && inFlows.length > 1) {
       const marked = inFlows.filter(has);
       if (!marked.length) return result;
-      const waiting = inFlows
-        .filter((i) => !has(i))
-        .some((i) => {
-          const up = canReach(i, n.id);
-          return [...m.entries()].some(([e, c]) => c > 0 && up.has(e));
-        });
+      // Table 13.3: wait while some token can reach an empty incoming flow
+      // without also being able to reach one that already holds a token.
+      const markedIds = new Set(marked.map((e) => e.id));
+      const waiting = [...m.entries()].some(([id, c]) => {
+        if (c <= 0) return false;
+        const e = edgeById.get(id);
+        if (!e) return false;
+        const reached = joinInputsReached(e, n.id);
+        let toEmpty = false;
+        let toMarked = false;
+        for (const r of reached) markedIds.has(r) ? (toMarked = true) : (toEmpty = true);
+        return toEmpty && !toMarked;
+      });
       if (waiting) return result;
       for (const o of outputs()) result.push({ consume: marked, ...o });
     } else {

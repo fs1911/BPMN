@@ -3,6 +3,7 @@ import { GraphIR, mapGraphToModel, sanitizeGraphIR } from "./graph";
 import { GraphDiff, applyEditedGraph, diffGraphs, modelToGraphIR } from "./edit";
 import type { ReviewReport } from "./types";
 import { readClaudeStream } from "./stream";
+import { buildCorrectionInstruction, normViolations } from "./correct";
 
 export interface GenerationResultGraph {
   model: BpmnModel;
@@ -21,9 +22,11 @@ export interface GenerationResultGraph {
  */
 
 export interface LlmProgress {
-  phase: "thinking" | "writing";
+  phase: "thinking" | "writing" | "correcting";
   /** characters of JSON received so far (writing phase). */
   chars?: number;
+  /** violations of the standard being sent back (correcting phase). */
+  violations?: number;
 }
 
 /** The endpoint is not there (local `vite dev`, no key configured, …). */
@@ -36,13 +39,59 @@ export interface LlmCallOptions {
   fetchImpl?: typeof fetch;
 }
 
+export interface GenerateOptions extends LlmCallOptions {
+  /** send violations of the standard back to the AI once (a second, paid call) */
+  selfCorrect?: boolean;
+}
+
 /** Text → new diagram. */
-export async function generateViaLlm(text: string, opts: LlmCallOptions = {}): Promise<GenerationResultGraph> {
+export async function generateViaLlm(text: string, opts: GenerateOptions = {}): Promise<GenerationResultGraph> {
   const graph = await callEndpoint({ text }, opts);
   const { ir, repairs } = sanitizeGraphIR(graph);
   if (!ir.nodes.length) throw new Error("Die KI hat keinen Prozess erkannt.");
   const { model, review } = mapGraphToModel(ir, { sourceText: text, repairs });
-  return { model, ir, review };
+  const first = { model, ir, review };
+  return opts.selfCorrect ? selfCorrect(first, opts) : first;
+}
+
+/**
+ * One correction round: the AI gets the violations as an edit instruction.
+ * The corrected diagram is kept only if it has fewer violations; either way
+ * the review says what happened.
+ */
+async function selfCorrect(first: GenerationResultGraph, opts: LlmCallOptions): Promise<GenerationResultGraph> {
+  const before = normViolations(first.model);
+  if (!before.length) return first;
+  const note = (text: string): GenerationResultGraph => ({ ...first, review: { ...first.review, findings: [text, ...(first.review.findings ?? [])] } });
+  opts.onProgress?.({ phase: "correcting", violations: before.length });
+  let fixed: EditResult;
+  try {
+    fixed = await editViaLlm(first.model, buildCorrectionInstruction(first.model, before), opts);
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    return note(`Selbstkorrektur fehlgeschlagen (${(err as Error).message}) – ${before.length} Normverstoss/-verstösse bleiben, siehe Diagramm-Prüfung.`);
+  }
+  const after = normViolations(fixed.model);
+  if (after.length >= before.length) {
+    return note(`Selbstkorrektur ohne Verbesserung – ${before.length} Normverstoss/-verstösse bleiben, siehe Diagramm-Prüfung.`);
+  }
+  const fixedCount = before.length - after.length;
+  return {
+    model: fixed.model,
+    ir: fixed.ir,
+    review: {
+      ...fixed.review,
+      // the edit only describes its own change: keep what the generation said
+      assumptions: [...first.review.assumptions, ...fixed.review.assumptions],
+      ambiguities: [...first.review.ambiguities, ...fixed.review.ambiguities],
+      confidence: first.review.confidence,
+      findings: [
+        `Selbstkorrektur: ${fixedCount} von ${before.length} Normverstoss/-verstössen behoben (${fixed.diff.summary.replace(/\.$/, "")}).` +
+          (after.length ? ` ${after.length} bleiben, siehe Diagramm-Prüfung.` : ""),
+        ...(fixed.review.findings ?? []),
+      ],
+    },
+  };
 }
 
 export interface EditResult extends GenerationResultGraph {

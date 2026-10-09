@@ -11,6 +11,7 @@ export function AiPanel() {
   const review = useEditor((s) => s.aiReview);
   const busy = useEditor((s) => s.aiBusy);
   const progress = useEditor((s) => s.aiProgress);
+  const selfCorrect = useEditor((s) => s.selfCorrect);
   const [tab, setTab] = useState<"generate" | "review" | "describe">("generate");
   // Kept in the store: it is saved with the process in the library.
   const text = useEditor((s) => s.inputText);
@@ -96,6 +97,10 @@ export function AiPanel() {
             {text.length.toLocaleString("de-CH")} / {ai.MAX_TEXT_CHARS.toLocaleString("de-CH")} Zeichen{tooLong ? " – zu lang, bitte kürzen" : ""}
           </p>
           <button disabled={busy || tooLong || !text.trim()} onClick={() => void store.getState().generate(text)}>{busy ? "Generiere…" : "BPMN-Entwurf generieren"}</button>
+          <label className="self-correct" title="Findet die Prüfung nach dem Generieren Verstösse gegen die BPMN-Norm, bekommt die KI sie einmal zur Korrektur zurück. Kostet dann eine zweite KI-Anfrage (Zeit und Geld).">
+            <input type="checkbox" checked={selfCorrect} onChange={(e) => store.getState().setSelfCorrect(e.target.checked)} />
+            <span>Normverstösse automatisch korrigieren lassen (kostet dann eine zweite KI-Anfrage)</span>
+          </label>
           {progress && <p className="muted progress">{progress}</p>}
 
           <h4>Per Anweisung aktualisieren</h4>

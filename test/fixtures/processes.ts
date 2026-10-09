@@ -4,8 +4,9 @@ import reklamation from "../../samples/llm-reklamation.json";
 /**
  * Layout benchmark corpus: realistic Graph IR as the LLM produces it. Written
  * in a compact notation:
- *   nodes: "id:type:Name@lane"   (type shorthands below, lane optional)
- *   flows: "a>b" or "a>b:condition"
+ *   nodes: "id:type:Name@lane"   (type shorthands below, lane optional;
+ *          boundary events "id:B:Name@host", non-interrupting "id:BN:Name@host")
+ *   flows: "a>b" or "a>b:condition" ("a>b:condition!" = default flow)
  */
 const T: Record<string, string> = {
   S: "startEvent",
@@ -20,6 +21,8 @@ const T: Record<string, string> = {
   O: "inclusiveGateway",
   EB: "eventBasedGateway",
   C: "intermediateCatchEvent",
+  B: "boundaryEvent",
+  BN: "boundaryEvent",
 };
 
 function g(title: string, lanes: string[], nodes: string[], flows: string[], events: Record<string, string> = {}): GraphIR {
@@ -30,20 +33,23 @@ function g(title: string, lanes: string[], nodes: string[], flows: string[], eve
     lanes: lanes.map((name, i) => ({ id: `l${i + 1}`, name })),
     nodes: nodes.map((spec) => {
       const [id, type, rest = ""] = spec.split(":");
-      const [name, lane = ""] = rest.split("@");
+      const [name, at = ""] = rest.split("@");
+      const boundary = type === "B" || type === "BN";
       return {
         id,
         type: (T[type] ?? type) as GraphIR["nodes"][number]["type"],
         name,
-        lane: lane ? laneIds[lane] : "",
+        lane: at && !boundary ? laneIds[at] : "",
         event: (events[id] ?? "none") as GraphIR["nodes"][number]["event"],
         source: name,
+        attachedTo: boundary ? at : "",
+        interrupting: type !== "BN",
       };
     }),
     flows: flows.map((f) => {
-      const [edge, condition = ""] = f.split(":");
+      const [edge, cond = ""] = f.split(":");
       const [from, to] = edge.split(">");
-      return { from, to, condition, isDefault: false };
+      return { from, to, condition: cond.replace(/!$/, ""), isDefault: cond.endsWith("!") };
     }),
     pools: [],
     messageFlows: [],
@@ -239,6 +245,84 @@ AUSSCHREIBUNG.messageFlows = [
   { from: "t45", to: "p_ag", name: "Korrekturanfrage" },
 ];
 
+/**
+ * A real process from the field (construction stage): loops inside a parallel
+ * block, an OR split/join with a default flow, a rework jump back to the AND
+ * split and an interrupting boundary event. It is sound — an earlier OR-join
+ * rule reported a deadlock here (the norm's table 13.3 says otherwise).
+ */
+export const BAUETAPPE = g(
+  "Bauetappe vorbereiten, ausführen und abnehmen",
+  ["Bauführer", "Polier", "SIBE", "Einkauf"],
+  [
+    "s:S:Bauauftrag eingegangen@Bauführer",
+    "a1:u:Auftrag und Ausführungsunterlagen prüfen@Bauführer",
+    "x1:X:Unterlagen vollständig?@Bauführer",
+    "a2:u:Fehlende Unterlagen beschaffen@Bauführer",
+    "p1:P:@Bauführer",
+    "b1:u:Personal und Geräte planen@Polier",
+    "x2:X:Ressourcen verfügbar?@Polier",
+    "b2:u:Ersatzressourcen organisieren@Polier",
+    "c1:u:Materialverfügbarkeit prüfen@Einkauf",
+    "x3:X:Material auf Lager?@Einkauf",
+    "c2:u:Material reservieren@Einkauf",
+    "c3:u:Material bestellen@Einkauf",
+    "c4:u:Liefertermin prüfen@Einkauf",
+    "x4:X:Liefertermin ausreichend?@Einkauf",
+    "c5:u:Alternativen bewerten@Einkauf",
+    "x5:X:Alternative möglich?@Einkauf",
+    "c6:u:Ersatzmaterial bestellen@Einkauf",
+    "c7:u:Etappentermin anpassen@Bauführer",
+    "m3:X:@Einkauf",
+    "d1:u:Gefährdungen beurteilen@SIBE",
+    "o1:O:Welche Massnahmen?@SIBE",
+    "d2:u:Technische Schutzmassnahmen planen@SIBE",
+    "d3:u:Organisatorische Schutzmassnahmen planen@SIBE",
+    "o2:O:@SIBE",
+    "d4:u:Sicherheitskonzept prüfen@SIBE",
+    "x6:X:Konzept ausreichend?@SIBE",
+    "p2:P:@Bauführer",
+    "e1:u:Etappe zur Ausführung prüfen@Bauführer",
+    "x7:X:Freigabe erteilt?@Bauführer",
+    "e2:u:Nachbesserung koordinieren@Bauführer",
+    "p3:P:@Bauführer",
+    "f1:m:Baustelle einrichten@Polier",
+    "f2:u:Mitarbeitende instruieren@SIBE",
+    "p4:P:@Polier",
+    "f3:m:Bauarbeiten ausführen@Polier",
+    "bm:B:Sicherheitsmangel gemeldet@f3",
+    "g1:m:Arbeiten stoppen und Bereich sichern@Polier",
+    "g2:u:Massnahmen festlegen@SIBE",
+    "g3:m:Massnahmen umsetzen@Polier",
+    "g4:u:Wiederaufnahme prüfen@SIBE",
+    "x8:X:Wiederaufnahme zulässig?@SIBE",
+    "p5:P:@Polier",
+    "h1:u:Ausführungsqualität prüfen@Polier",
+    "h2:u:Leistungen und Nachweise prüfen@Bauführer",
+    "p6:P:@Bauführer",
+    "h3:u:Prüfergebnisse bewerten@Bauführer",
+    "x9:X:Mängel vorhanden?@Bauführer",
+    "h4:m:Mängel beheben@Polier",
+    "h5:u:Bauetappe abnehmen@Bauführer",
+    "h6:u:Dokumentation abschliessen@Bauführer",
+    "e:E:Bauetappe abgeschlossen@Bauführer",
+  ],
+  [
+    "s>a1", "a1>x1", "x1>a2:nein", "a2>a1", "x1>p1:ja",
+    "p1>b1", "p1>c1", "p1>d1",
+    "b1>x2", "x2>b2:nein", "b2>b1", "x2>p2:ja",
+    "c1>x3", "x3>c2:ja", "x3>c3:nein", "c3>c4", "c4>x4", "x4>m3:ja", "x4>c5:nein", "c5>x5", "x5>c6:ja", "x5>c7:nein", "c7>c4",
+    "c2>m3", "c6>m3", "m3>p2",
+    "d1>o1", "o1>d2:technische Massnahmen nötig", "o1>d3:organisatorische Massnahmen nötig", "o1>o2:keine Zusatzmassnahmen!",
+    "d2>o2", "d3>o2", "o2>d4", "d4>x6", "x6>d1:nein", "x6>p2:ja",
+    "p2>e1", "e1>x7", "x7>e2:nein", "e2>p1", "x7>p3:ja",
+    "p3>f1", "p3>f2", "f1>p4", "f2>p4", "p4>f3",
+    "bm>g1", "g1>g2", "g2>g3", "g3>g4", "g4>x8", "x8>g2:nein", "x8>f3:ja",
+    "f3>p5", "p5>h1", "p5>h2", "h1>p6", "h2>p6", "p6>h3", "h3>x9", "x9>h4:ja", "h4>p5", "x9>h5:nein", "h5>h6", "h6>e",
+  ],
+  { s: "message", bm: "message" },
+);
+
 export const REKLAMATION = { pools: [], messageFlows: [], ...reklamation } as unknown as GraphIR;
 
 export const CORPUS: Record<string, GraphIR> = {
@@ -248,4 +332,5 @@ export const CORPUS: Record<string, GraphIR> = {
   urlaub: URLAUB,
   kredit: KREDIT,
   ausschreibung: AUSSCHREIBUNG,
+  bauetappe: BAUETAPPE,
 };

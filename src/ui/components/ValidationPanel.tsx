@@ -50,6 +50,16 @@ export function ValidationPanel() {
               <div className="vi-body">
                 <div className="vi-msg">
                   {it.rule.startsWith("simulation.") && <span className="vi-tag">Ablauf</span>}
+                  {it.norm && (
+                    <span className="vi-tag norm" title={`Regel der BPMN-Norm ISO/IEC 19510, Abschnitt ${it.norm}`}>
+                      Norm {it.norm}
+                    </span>
+                  )}
+                  {it.style && (
+                    <span className="vi-tag style" title="Empfehlung für gute Lesbarkeit – keine Regel der Norm">
+                      Stil
+                    </span>
+                  )}
                   <span className="vi-sev">{SEV_LABEL[it.severity] ?? it.severity}:</span> {it.message}
                 </div>
                 {it.hint && <div className="vi-hint">→ {it.hint}</div>}

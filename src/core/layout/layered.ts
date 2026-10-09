@@ -933,6 +933,32 @@ function orderTracks(all: CorridorSeg[]): void {
 // Main entry
 
 export function layoutScope(model: BpmnModel, scope: string, options: Partial<LayoutOptions> = {}): LayoutResult {
+  // The exception path after a boundary event continues from its host: place
+  // it after the host (proxy flows host → target, removed again below).
+  const proxies = boundaryProxies(model, scope);
+  try {
+    return layoutScopeInner(model, scope, options);
+  } finally {
+    for (const id of proxies) delete model.edges[id];
+  }
+}
+
+const PROXY_PREFIX = "__boundary_proxy__";
+
+function boundaryProxies(model: BpmnModel, scope: string): string[] {
+  const ids: string[] = [];
+  for (const e of Object.values(model.edges)) {
+    if (e.type !== "sequenceFlow") continue;
+    const b = model.nodes[e.source];
+    if (!b || b.parent !== scope || b.type !== "boundaryEvent" || !b.attachedToRef || !model.nodes[b.attachedToRef]) continue;
+    const id = `${PROXY_PREFIX}${e.id}`;
+    model.edges[id] = { id, type: "sequenceFlow", source: b.attachedToRef, target: e.target };
+    ids.push(id);
+  }
+  return ids;
+}
+
+function layoutScopeInner(model: BpmnModel, scope: string, options: Partial<LayoutOptions> = {}): LayoutResult {
   const opts = { ...DEFAULT_LAYOUT, ...options };
   const adj = buildAdjacency(model, { scope, types: ["sequenceFlow"] });
 
@@ -949,7 +975,7 @@ export function layoutScope(model: BpmnModel, scope: string, options: Partial<La
 
   const backEdges = detectBackEdges(filteredAdj);
   for (const e of Object.values(model.edges)) {
-    if (e.type === "sequenceFlow") e.isBackEdge = backEdges.has(e.id);
+    if (e.type === "sequenceFlow") e.isBackEdge = backEdges.has(e.id) || backEdges.has(`${PROXY_PREFIX}${e.id}`);
   }
   const order = topoOrder(filteredAdj, backEdges);
   const rank = assignRanks(order, filteredAdj, backEdges);
@@ -1016,6 +1042,7 @@ export function layoutScope(model: BpmnModel, scope: string, options: Partial<La
   };
   const routed = new Set<string>();
   for (const [eid, pts] of Object.entries(plan.routes)) {
+    if (eid.startsWith(PROXY_PREFIX)) continue; // the real flow starts at the boundary event: routed afterwards
     const wps: Point[] = pts.map((p) => ({ x: resolveX(p.x), y: p.y }));
     model.edges[eid].waypoints = dedupe(wps);
     routed.add(eid);

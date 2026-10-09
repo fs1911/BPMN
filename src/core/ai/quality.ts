@@ -59,9 +59,12 @@ export function assessModel(
   if (!nodes.some((n) => n.type === "endEvent")) findings.push("Kein Endereignis.");
   const reached = new Set<string>(starts.map((s) => s.id));
   const queue = [...reached];
+  const boundaryOf = (id: string) => nodes.filter((b) => b.type === "boundaryEvent" && b.attachedToRef === id);
   while (queue.length) {
     const id = queue.shift()!;
-    for (const e of outs(id)) if (!reached.has(e.target)) (reached.add(e.target), queue.push(e.target));
+    // the exception path behind a boundary event starts at its activity
+    const next = [...outs(id).map((e) => e.target), ...boundaryOf(id).map((b) => b.id)];
+    for (const t of next) if (!reached.has(t)) (reached.add(t), queue.push(t));
   }
   const unreachable = nodes.filter((n) => (isActivity(n.type) || n.type.endsWith("Gateway")) && !reached.has(n.id) && n.type !== "boundaryEvent");
   if (unreachable.length) findings.push(`${unreachable.length} Element(e) vom Start aus nicht erreichbar.`);

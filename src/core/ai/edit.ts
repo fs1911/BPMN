@@ -1,4 +1,4 @@
-import { BpmnModel, FlowNode, createEdge, createNode } from "../model";
+import { BpmnModel, FlowNode } from "../model";
 import { GRAPH_EVENT_KINDS, GRAPH_NODE_TYPES, GraphEventKind, GraphIR, GraphNodeType } from "./graph-schema";
 import { mapGraphToModel } from "./graph";
 import type { MappingResult } from "./map";
@@ -9,8 +9,8 @@ import type { MappingResult } from "./map";
  * The current diagram is converted to Graph IR with its real element ids, the
  * LLM returns the complete updated IR, and `applyEditedGraph` turns it back
  * into a diagram. Everything the LLM never sees is carried over by id:
- * documentation texts, activity markers, called elements, boundary events and
- * their flows. The previous vertical arrangement is handed to the layout so
+ * documentation texts, activity markers, called elements and event triggers
+ * the AI format does not know. Boundary events are part of the IR. The previous vertical arrangement is handed to the layout so
  * the diagram does not jump around after a small change.
  */
 
@@ -36,6 +36,8 @@ export function modelToGraphIR(model: BpmnModel): GraphIR {
       lane: n.lane && laneIds.includes(n.lane) ? n.lane : "",
       event: (n.eventDefinition && EVENT_KINDS.has(n.eventDefinition) ? n.eventDefinition : "none") as GraphEventKind,
       source: n.provenance ?? "",
+      attachedTo: n.type === "boundaryEvent" && n.attachedToRef && ids.has(n.attachedToRef) ? n.attachedToRef : "",
+      interrupting: n.type !== "boundaryEvent" || n.cancelActivity !== false,
     })),
     flows: Object.values(model.edges)
       .filter((e) => e.type === "sequenceFlow" && ids.has(e.source) && ids.has(e.target))
@@ -140,24 +142,11 @@ export function applyEditedGraph(prev: BpmnModel, ir: GraphIR, opts: { repairs?:
         const old = Object.values(prev.edges).find((o) => o.source === e.source && o.target === e.target);
         if (old) e.documentation ??= old.documentation;
       }
-      // Re-attach boundary events whose host still exists, with their flows.
-      for (const b of Object.values(prev.nodes)) {
-        if (b.parent !== scope || b.type !== "boundaryEvent" || !b.attachedToRef || !model.nodes[b.attachedToRef]) continue;
-        const host = model.nodes[b.attachedToRef];
-        createNode(model, "boundaryEvent", {
-          id: b.id,
-          name: b.name,
-          eventDefinition: b.eventDefinition,
-          cancelActivity: b.cancelActivity,
-          attachedToRef: host.id,
-          lane: host.lane,
-          documentation: b.documentation,
-        });
-        for (const e of Object.values(prev.edges)) {
-          if (e.source === b.id && model.nodes[e.target]) {
-            createEdge(model, "sequenceFlow", b.id, e.target, { id: e.id, name: e.name, condition: e.condition });
-          }
-        }
+      // Event triggers the AI format does not know (link, compensation, …) were
+      // shown to it as "none": keep them while the element stays an event of the same type.
+      for (const n of Object.values(model.nodes)) {
+        const old = prev.nodes[n.id];
+        if (old?.type === n.type && old.eventDefinition && !EVENT_KINDS.has(old.eventDefinition) && !n.eventDefinition) n.eventDefinition = old.eventDefinition;
       }
     },
   });

@@ -78,7 +78,29 @@ events, subprocess scopes), so problems on *any* path are found — deadlocks
 (e.g. an AND-join after an XOR decision, or a path that ends inside a parallel
 section), double execution (AND-split merged by XOR), loops without exit and
 unreachable elements. Findings appear under *Ablauf* in the diagram check with
-an example run; clicking one selects all involved elements.
+an example run; clicking one selects all involved elements. Unnamed elements
+are named by their place ("beim ODER-Gateway vor „Sicherheitskonzept prüfen“").
+
+**BPMN standard (ISO/IEC 19510).** The token rules follow clause 13 of the
+standard: an OR join waits only for a token that can still reach an empty
+input *and* cannot reach one that already holds a token (table 13.3 — a
+simpler rule raised false deadlocks on loops inside parallel blocks);
+activity outputs without a condition always run (13.3.1); complex gateways
+synchronise like OR joins (10.6.5). The diagram check covers the mandatory
+rules of clause 10 (boundary, intermediate and link events, start/end,
+event-based gateways) and names the clause ("Norm 10.5.4"). Recommendations
+that are not in the standard — line crossings, a rework loop that restarts
+every parallel branch — are marked *Stil* and never count as errors. The
+standard itself is not part of the repository (licensed document).
+
+**AI and the standard.** The AI instructions include these rules, and the AI
+format has boundary events (activity, trigger, interrupting or not); the
+layout places their exception path behind the activity. With *Normverstösse
+automatisch korrigieren lassen* (off by default, remembered per browser), a
+draft with violations of the standard goes back to the AI once as an edit
+instruction (`src/core/ai/correct.ts`); the corrected draft is kept only if it
+has fewer violations. This costs a second AI call, only when there is
+something to correct.
 
 *▶ Simulation* plays the process by itself (`src/core/simulation/scenarios.ts`,
 `src/ui/bpmn/auto-sim.ts`): paths are chosen so that every answer at every
