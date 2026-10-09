@@ -71,6 +71,25 @@ this device and this site address only — *Bibliothek sichern* writes a JSON
 backup, *Sicherung laden* restores it (same id: newer version wins), which is
 also how the library moves to another browser or host.
 
+**Process simulation.** Every change runs an exhaustive token-flow check
+(`src/core/simulation/soundness.ts`): all reachable states of the process are
+explored with BPMN token semantics (XOR/AND/OR gateways, boundary and terminate
+events, subprocess scopes), so problems on *any* path are found — deadlocks
+(e.g. an AND-join after an XOR decision, or a path that ends inside a parallel
+section), double execution (AND-split merged by XOR), loops without exit and
+unreachable elements. Findings appear under *Ablauf* in the diagram check with
+an example run; clicking one selects all involved elements. *Simulation*
+(top left of the canvas) animates tokens step by step via
+[bpmn-js-token-simulation](https://github.com/bpmn-io/bpmn-js-token-simulation)
+(MIT), with German labels.
+
+**Version history.** Every *In Bibliothek speichern* (Ctrl+S) stores a version
+(unchanged states are not duplicated; the newest 20 per process are kept).
+*🕘 Versionen* sets any version side by side with the current state —
+removed red, new green, changed orange, plus a change list — and restores it
+(the current state is kept as a version first). Versions are part of the
+library backup file.
+
 **Word / PDF as input.** *Word / PDF laden* (or dropping a file on the text
 field) converts a `.docx` or a text PDF to Markdown **in the browser** — the
 file never leaves the machine; only the Markdown, shown in the text field for

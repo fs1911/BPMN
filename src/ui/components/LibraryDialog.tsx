@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useEditor } from "@state/store";
-import { StoredProcess, copyName, makeBackup, mergeBackup, newId, parseBackup } from "@core/library/library";
-import { deleteProcess, listProcesses, putProcess, putProcesses } from "@ui/library/db";
+import { StoredProcess, copyName, makeBackup, mergeBackup, newId, parseBackup, parseBackupVersions } from "@core/library/library";
+import { deleteProcess, listAllVersions, listProcesses, putProcess, putProcesses, putVersions } from "@ui/library/db";
 import { downloadBlob } from "@ui/export/pdf";
 
 /** Process library: list, search, open, rename, duplicate, delete, backup/restore. */
@@ -100,18 +100,24 @@ export function LibraryDialog() {
     run(async () => {
       await store().saveNow();
       const all = await listProcesses();
+      const versions = await listAllVersions();
       const day = new Date().toISOString().slice(0, 10);
-      downloadBlob(new Blob([JSON.stringify(makeBackup(all))], { type: "application/json" }), `flowcraft-bibliothek-${day}.json`);
-      setNote({ text: `${all.length} Prozess(e) in die Sicherungsdatei geschrieben.` });
+      downloadBlob(new Blob([JSON.stringify(makeBackup(all, new Date(), versions))], { type: "application/json" }), `flowcraft-bibliothek-${day}.json`);
+      setNote({ text: `${all.length} Prozess(e) mit ${versions.length} Version(en) in die Sicherungsdatei geschrieben.` });
     });
   const restore = (file: File | undefined) =>
     run(async () => {
       if (!file) return;
-      const incoming = parseBackup(await file.text());
+      const text = await file.text();
+      const incoming = parseBackup(text);
       const res = mergeBackup(await listProcesses(), incoming);
       await putProcesses(res.write);
+      // Versions are immutable: add the ones not yet present.
+      const known = new Set((await listAllVersions()).map((v) => v.id));
+      const newVersions = parseBackupVersions(text).filter((v) => !known.has(v.id));
+      if (newVersions.length) await putVersions(newVersions);
       store().libraryChanged();
-      setNote({ text: `Sicherung geladen: ${res.added} neu, ${res.updated} aktualisiert, ${res.skipped} bereits aktuell.` });
+      setNote({ text: `Sicherung geladen: ${res.added} neu, ${res.updated} aktualisiert, ${res.skipped} bereits aktuell, ${newVersions.length} Version(en) übernommen.` });
     });
 
   return (

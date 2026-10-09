@@ -15,7 +15,7 @@ import { buildProcessPdf, downloadBlob, fileBase } from "@ui/export/pdf";
 import { loadShowTaskTypes, saveShowTaskTypes, setShowTaskTypes } from "@ui/bpmn/plain-tasks";
 import { initialXml } from "@ui/bpmn/bridge";
 import { StoredProcess, newId } from "@core/library/library";
-import { deleteProcess, getLastOpened, getProcess, listProcesses, putProcess, requestPersistence, setLastOpened } from "@ui/library/db";
+import { addVersion, deleteProcess, getLastOpened, getProcess, listProcesses, putProcess, requestPersistence, setLastOpened } from "@ui/library/db";
 
 const SAMPLE_TEXT = `Wenn eine Bestellanforderung eingeht, erfasst der Sachbearbeiter sie im System.
 Der Einkäufer prüft die Anforderung auf Vollständigkeit.
@@ -89,6 +89,10 @@ interface EditorState {
   toast?: { text: string; error?: boolean };
   showToast: (text: string, error?: boolean) => void;
   setLibraryOpen: (open: boolean) => void;
+  versionsOpen: boolean;
+  setVersionsOpen: (open: boolean) => void;
+  /** make a saved version the current state (the current state is saved as a version first) */
+  restoreVersion: (xml: string, number: number) => Promise<void>;
 
   acceptPreview: () => void;
   rejectPreview: () => Promise<void>;
@@ -138,6 +142,22 @@ export const useEditor = create<EditorState>((set, get) => ({
   libraryVersion: 0,
   libraryOpen: false,
   setLibraryOpen: (open) => set({ libraryOpen: open }),
+  versionsOpen: false,
+  setVersionsOpen: (open) => set({ versionsOpen: open }),
+
+  restoreVersion: async (xml, number) => {
+    const m = get().modeler;
+    if (!m) return;
+    // Save the current state as a version first, so restoring can be undone.
+    await get().saveToLibrary();
+    if (get().saveState === "error") return;
+    await m.importXML(xml);
+    fitViewport(m);
+    await get().revalidate();
+    get().noteChange();
+    await get().saveNow();
+    get().showToast(`↩ Version ${number} wiederhergestellt. Der vorherige Stand ist als neueste Version gesichert.`);
+  },
 
   setInputText: (t) => {
     set({ inputText: t });
@@ -187,6 +207,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       const back = await getProcess(rec.id);
       if (!back || back.xml !== xml || back.updatedAt !== now) throw new Error("Der Browser hat den Prozess nicht übernommen (Kontrolle nach dem Speichern fehlgeschlagen).");
       const count = (await listProcesses()).length;
+      const version = await addVersion(rec.id, rec.name, xml);
       lastSaved = { sig: signature(xml, s), xml };
       void requestPersistence();
       setLastOpened(rec.id);
@@ -196,7 +217,9 @@ export const useEditor = create<EditorState>((set, get) => ({
         saveError: undefined,
         libraryVersion: st.libraryVersion + 1,
       }));
-      get().showToast(`✓ „${rec.name}“ in der Bibliothek gespeichert – ${count} Prozess(e) in der Bibliothek.`);
+      get().showToast(
+        `✓ „${rec.name}“ in der Bibliothek gespeichert – ${version.created ? `Version ${version.number}` : `unverändert seit Version ${version.number}`} · ${count} Prozess(e) in der Bibliothek.`,
+      );
     } catch (err) {
       const e = err as Error & { name?: string };
       const msg = `${e.name && e.name !== "Error" ? e.name + ": " : ""}${e.message || String(err)}`;

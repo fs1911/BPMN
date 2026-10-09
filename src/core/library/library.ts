@@ -16,15 +16,46 @@ export interface StoredProcess {
   updatedAt: string;
 }
 
+/** A saved version of a process (created by "In Bibliothek speichern"). */
+export interface StoredVersion {
+  id: string;
+  processId: string;
+  /** 1, 2, 3 … per process */
+  number: number;
+  createdAt: string;
+  /** process name at that time */
+  name: string;
+  xml: string;
+}
+
+/** Versions kept per process; older ones are deleted. */
+export const MAX_VERSIONS = 20;
+
 export interface LibraryBackup {
   format: "flowcraft-library";
   version: 1;
   exportedAt: string;
   processes: StoredProcess[];
+  /** optional (older backups have none) */
+  versions?: StoredVersion[];
 }
 
-export function makeBackup(processes: StoredProcess[], now = new Date()): LibraryBackup {
-  return { format: "flowcraft-library", version: 1, exportedAt: now.toISOString(), processes };
+export function makeBackup(processes: StoredProcess[], now = new Date(), versions: StoredVersion[] = []): LibraryBackup {
+  return { format: "flowcraft-library", version: 1, exportedAt: now.toISOString(), processes, versions };
+}
+
+/** Versions in a backup file (validated; the file itself is checked by parseBackup). */
+export function parseBackupVersions(text: string): StoredVersion[] {
+  const b = JSON.parse(text) as Partial<LibraryBackup>;
+  const str = (v: unknown) => typeof v === "string";
+  return (Array.isArray(b.versions) ? b.versions : []).filter(
+    (v): v is StoredVersion => !!v && str(v.id) && str(v.processId) && typeof v.number === "number" && str(v.xml) && str(v.createdAt),
+  );
+}
+
+/** Which versions to delete so that at most `max` remain (oldest go first). */
+export function versionsToPrune(versions: StoredVersion[], max = MAX_VERSIONS): string[] {
+  return [...versions].sort((a, b) => b.number - a.number).slice(max).map((v) => v.id);
 }
 
 /** Validate a backup file; throws a German message for the user. */

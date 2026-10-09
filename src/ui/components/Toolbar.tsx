@@ -29,6 +29,7 @@ export function Toolbar() {
       <div className="tb-group doc">
         <button onClick={() => store.getState().setLibraryOpen(true)} title="Gespeicherte Prozesse öffnen, umbenennen, sichern">📁 Bibliothek</button>
         <button className="save-btn" onClick={() => void store.getState().saveToLibrary()} title="Aktuellen Prozess in der Bibliothek speichern (Strg+S)">💾 In Bibliothek speichern</button>
+        <button onClick={() => store.getState().setVersionsOpen(true)} title="Gespeicherte Versionen dieses Prozesses vergleichen und wiederherstellen">🕘 Versionen</button>
         <button onClick={() => void store.getState().newProcess()} title="Neuen leeren Prozess beginnen (der aktuelle ist gespeichert)">＋ Neu</button>
         <button
           className="doc-name"

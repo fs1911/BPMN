@@ -8,3 +8,5 @@ export * as ai from "./ai";
 export { exportBpmn, importBpmn } from "./xml";
 export * from "./describe";
 export * from "./simulation";
+export { diffModels } from "./versions/diff";
+export type { ElementChange, ModelDiff } from "./versions/diff";

@@ -6,6 +6,7 @@ import { AiPanel } from "./components/AiPanel";
 import { ValidationPanel } from "./components/ValidationPanel";
 import { PreviewBar } from "./components/PreviewBar";
 import { LibraryDialog } from "./components/LibraryDialog";
+import { VersionsDialog } from "./components/VersionsDialog";
 
 export function App() {
   const theme = useEditor((s) => s.theme);
@@ -56,6 +57,7 @@ export function App() {
         </aside>
       </div>
       <LibraryDialog />
+      <VersionsDialog />
       {toast && (
         <div className={`toast${toast.error ? " error" : ""}`} role="status" onClick={() => useEditor.setState({ toast: undefined })}>
           {toast.text}
