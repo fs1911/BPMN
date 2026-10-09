@@ -28,6 +28,7 @@ export function Toolbar() {
       <span className="brand">FlowCraft<small> BPMN</small></span>
       <div className="tb-group doc">
         <button onClick={() => store.getState().setLibraryOpen(true)} title="Gespeicherte Prozesse öffnen, umbenennen, sichern">📁 Bibliothek</button>
+        <button className="save-btn" onClick={() => void store.getState().saveToLibrary()} title="Aktuellen Prozess in der Bibliothek speichern (Strg+S)">💾 In Bibliothek speichern</button>
         <button onClick={() => void store.getState().newProcess()} title="Neuen leeren Prozess beginnen (der aktuelle ist gespeichert)">＋ Neu</button>
         <button
           className="doc-name"

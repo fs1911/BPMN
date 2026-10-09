@@ -144,3 +144,30 @@ check(`restore message: ${await page.locator(".lib-note").textContent()}`, (awai
 await closeLib();
 console.log(errors.length ? `ERRORS:\n${errors.join("\n")}` : "no browser errors");
 await browser.close();
+
+// Explicit save button: success toast with read-back, and a clear error when storage is blocked.
+{
+  const b2 = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const p = await b2.newPage();
+  await p.goto(url, { waitUntil: "networkidle" });
+  await p.waitForSelector(".djs-shape");
+  await p.getByText("💾 In Bibliothek speichern").click();
+  await p.waitForSelector(".toast");
+  const ok = await p.locator(".toast").textContent();
+  check(`save button on untouched diagram: ${ok}`, ok.includes("gespeichert") && ok.includes("1 Prozess"));
+  await p.keyboard.press("Control+s");
+  await p.waitForTimeout(300);
+  check("Ctrl+S saves too", (await p.locator(".toast").textContent()).includes("gespeichert"));
+  await b2.close();
+
+  const b3 = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const q = await b3.newPage();
+  await q.addInitScript(() => { indexedDB.open = () => { throw new DOMException("The user denied permission to access the database.", "SecurityError"); }; });
+  await q.goto(url, { waitUntil: "networkidle" });
+  await q.waitForSelector(".djs-shape");
+  await q.getByText("💾 In Bibliothek speichern").click();
+  await q.waitForSelector(".toast.error");
+  const err = await q.locator(".toast").textContent();
+  check(`blocked storage is reported: ${err.slice(0, 90)}…`, err.includes("SecurityError") && (await q.locator(".save-state").textContent()).includes("fehlgeschlagen"));
+  await b3.close();
+}

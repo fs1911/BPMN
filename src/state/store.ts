@@ -15,7 +15,7 @@ import { buildProcessPdf, downloadBlob, fileBase } from "@ui/export/pdf";
 import { loadShowTaskTypes, saveShowTaskTypes, setShowTaskTypes } from "@ui/bpmn/plain-tasks";
 import { initialXml } from "@ui/bpmn/bridge";
 import { StoredProcess, newId } from "@core/library/library";
-import { deleteProcess, getLastOpened, getProcess, putProcess, requestPersistence, setLastOpened } from "@ui/library/db";
+import { deleteProcess, getLastOpened, getProcess, listProcesses, putProcess, requestPersistence, setLastOpened } from "@ui/library/db";
 
 const SAMPLE_TEXT = `Wenn eine Bestellanforderung eingeht, erfasst der Sachbearbeiter sie im System.
 Der Einkäufer prüft die Anforderung auf Vollständigkeit.
@@ -84,6 +84,10 @@ interface EditorState {
   restoreLast: () => Promise<void>;
   libraryChanged: () => void;
   libraryOpen: boolean;
+  /** explicit "In Bibliothek speichern": always writes, then reads back to verify */
+  saveToLibrary: () => Promise<void>;
+  toast?: { text: string; error?: boolean };
+  showToast: (text: string, error?: boolean) => void;
   setLibraryOpen: (open: boolean) => void;
 
   acceptPreview: () => void;
@@ -152,6 +156,55 @@ export const useEditor = create<EditorState>((set, get) => ({
     })();
   },
 
+  showToast: (text, error) => {
+    set({ toast: { text, error } });
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => set({ toast: undefined }), error ? 12000 : 4000);
+  },
+
+  saveToLibrary: async () => {
+    const m = get().modeler;
+    if (!m) return;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = undefined;
+    set({ saveState: "saving" });
+    try {
+      const xml = await getXml(m);
+      const s = get();
+      const now = new Date().toISOString();
+      const name = s.doc.nameAuto ? s.description?.title?.trim() || s.doc.name || "Unbenannter Prozess" : s.doc.name;
+      const rec: StoredProcess = {
+        id: s.doc.id ?? newId(),
+        name,
+        xml,
+        sourceText: s.inputText,
+        review: s.aiReview ? JSON.parse(JSON.stringify(s.aiReview)) : undefined,
+        createdAt: s.doc.createdAt ?? now,
+        updatedAt: now,
+      };
+      await putProcess(rec);
+      // Read back: only report success when the library really holds this version.
+      const back = await getProcess(rec.id);
+      if (!back || back.xml !== xml || back.updatedAt !== now) throw new Error("Der Browser hat den Prozess nicht übernommen (Kontrolle nach dem Speichern fehlgeschlagen).");
+      const count = (await listProcesses()).length;
+      lastSaved = { sig: signature(xml, s), xml };
+      void requestPersistence();
+      setLastOpened(rec.id);
+      set((st) => ({
+        doc: { ...st.doc, id: rec.id, name: rec.name, createdAt: rec.createdAt },
+        saveState: "saved",
+        saveError: undefined,
+        libraryVersion: st.libraryVersion + 1,
+      }));
+      get().showToast(`✓ „${rec.name}“ in der Bibliothek gespeichert – ${count} Prozess(e) in der Bibliothek.`);
+    } catch (err) {
+      const e = err as Error & { name?: string };
+      const msg = `${e.name && e.name !== "Error" ? e.name + ": " : ""}${e.message || String(err)}`;
+      set({ saveState: "error", saveError: msg });
+      get().showToast(`⚠ Speichern fehlgeschlagen: ${msg} – Häufige Ursache: privates/Inkognito-Fenster oder Browser-Einstellung „Websitedaten blockieren/beim Schliessen löschen“.`, true);
+    }
+  },
+
   saveNow: async () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = undefined;
@@ -178,7 +231,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       name,
       xml,
       sourceText: s.inputText,
-      review: s.aiReview,
+      review: s.aiReview ? JSON.parse(JSON.stringify(s.aiReview)) : undefined,
       createdAt: s.doc.createdAt ?? now,
       updatedAt: now,
     };
@@ -195,7 +248,8 @@ export const useEditor = create<EditorState>((set, get) => ({
         libraryVersion: st.libraryVersion + 1,
       }));
     } catch (err) {
-      set({ saveState: "error", saveError: (err as Error).message });
+      const e = err as Error;
+      set({ saveState: "error", saveError: `${e.name && e.name !== "Error" ? e.name + ": " : ""}${e.message}` });
     }
   },
 
@@ -566,6 +620,7 @@ function unhighlight(m: Modeler, ids: string[]): void {
 
 const AUTOSAVE_MS = 1500;
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
 /** what was last written to (or read from) the library */
 let lastSaved: { sig: string; xml: string } = { sig: "", xml: "" };
 

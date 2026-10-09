@@ -13,6 +13,7 @@ export function LibraryDialog() {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<{ id: string; name: string }>();
   const [note, setNote] = useState<{ text: string; error?: boolean }>();
+  const [diag, setDiag] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const store = useEditor.getState;
 
@@ -21,6 +22,24 @@ export function LibraryDialog() {
     listProcesses()
       .then(setItems)
       .catch((err: Error) => setNote({ text: err.message, error: true }));
+  }, [open, version]);
+
+  useEffect(() => {
+    if (!open) return;
+    // Facts for troubleshooting ("my processes are not saved"): storage mode and usage.
+    void (async () => {
+      const parts: string[] = [`Speicher: ${typeof indexedDB === "undefined" ? "nicht verfügbar" : "IndexedDB"}`];
+      try {
+        const persisted = await navigator.storage?.persisted?.();
+        if (persisted !== undefined) parts.push(persisted ? "dauerhaft" : "nicht dauerhaft (Browser darf löschen)");
+        const est = await navigator.storage?.estimate?.();
+        if (est?.usage !== undefined) parts.push(`${Math.round(est.usage / 1024)} KB belegt`);
+      } catch {
+        /* not supported */
+      }
+      parts.push(location.host);
+      setDiag(parts.join(" · "));
+    })();
   }, [open, version]);
 
   useEffect(() => {
@@ -145,7 +164,10 @@ export function LibraryDialog() {
 
         {note && <p className={`lib-note${note.error ? " error" : ""}`}>{note.text}</p>}
         <div className="lib-foot">
-          <span className="muted">Gespeichert nur in diesem Browser auf diesem Gerät. Regelmässig sichern – Browserdaten löschen oder eine neue Adresse heisst leere Bibliothek.</span>
+          <span className="muted">
+            Gespeichert nur in diesem Browser auf diesem Gerät. Regelmässig sichern – Browserdaten löschen oder eine neue Adresse heisst leere Bibliothek.
+            {diag && <><br /><small className="lib-diag">{diag}</small></>}
+          </span>
           <div className="lib-foot-actions">
             <button onClick={() => void backup()}>Bibliothek sichern</button>
             <button onClick={() => fileRef.current?.click()}>Sicherung laden</button>
