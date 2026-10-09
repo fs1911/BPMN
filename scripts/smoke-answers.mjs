@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { SSE_HEADERS, claudeSse } from "./lib/claude-sse.mjs";
 import { readFileSync } from "node:fs";
 
 // Answering the AI's open questions (AI responses mocked):
@@ -26,7 +27,7 @@ await page.route("**/api/generate", (route) => {
     // the "AI" renames one task and raises a follow-up question
     graph = { ...body.graph, nodes: body.graph.nodes.map((n, i) => (i === 3 ? { ...n, name: n.name + " (inkl. Stellvertretung)" } : n)), ambiguities: [q3] };
   }
-  route.fulfill({ status: 200, headers: { "content-type": "application/x-ndjson" }, body: JSON.stringify({ type: "result", graph }) + "\n" });
+  route.fulfill({ status: 200, headers: SSE_HEADERS, body: claudeSse(graph) });
 });
 const questions = () => page.locator(".questions .q-text").allTextContents();
 

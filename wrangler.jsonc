@@ -1,0 +1,20 @@
+// Cloudflare Workers configuration for FlowCraft.
+// Build: `npm run build` (→ dist/), deploy: `npx wrangler deploy`.
+// Secrets (dashboard → Worker → Settings → Variables and Secrets, or
+// `npx wrangler secret put NAME`): ANTHROPIC_API_KEY, ACCESS_CODES, ACCESS_SECRET.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "flowcraft",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // single-page app: unknown paths serve index.html
+    "not_found_handling": "single-page-application",
+    // the access gate must run before any asset is served
+    "run_worker_first": true
+  },
+  "observability": { "enabled": true }
+}

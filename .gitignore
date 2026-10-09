@@ -7,3 +7,7 @@ scripts/*.png
 coverage
 *.tsbuildinfo
 scripts/*.pdf
+
+# Cloudflare local dev
+.wrangler/
+.dev.vars

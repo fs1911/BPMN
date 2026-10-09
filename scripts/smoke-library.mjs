@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { SSE_HEADERS, claudeSse } from "./lib/claude-sse.mjs";
 import { readFileSync } from "node:fs";
 
 // Process library in the browser (IndexedDB), AI responses mocked:
@@ -30,7 +31,7 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 page.on("dialog", (d) => d.accept(d.type() === "prompt" ? "Offerte (umbenannt)" : undefined));
 let next = g1;
-await page.route("**/api/generate", (r) => r.fulfill({ status: 200, headers: { "content-type": "application/x-ndjson" }, body: JSON.stringify({ type: "result", graph: next }) + "\n" }));
+await page.route("**/api/generate", (r) => r.fulfill({ status: 200, headers: SSE_HEADERS, body: claudeSse(next) }));
 
 const check = (label, ok) => {
   console.log(`${ok ? "OK  " : "FAIL"} ${label}`);
@@ -47,12 +48,23 @@ const generate = async (text) => {
   await waitSaved();
 };
 const libNames = async () => {
-  await page.getByText("📁 Bibliothek").click();
-  await page.waitForSelector(".lib-dialog");
-  const names = await page.locator(".lib-name").allTextContents();
+  if (!(await page.locator(".lib-dialog").count())) await page.getByText("📁 Bibliothek").click();
+  await page.waitForSelector(".lib-row, .lib-empty"); // list loads asynchronously
+  return page.locator(".lib-name").allTextContents();
+};
+// Autosave runs 1.5 s after a change: poll the library until it shows what we expect.
+const libEventually = async (pred, ms = 8000) => {
+  let names = [];
+  for (const end = Date.now() + ms; Date.now() < end; await page.waitForTimeout(250)) {
+    names = await libNames();
+    if (pred(names)) return names;
+    await closeLib();
+  }
   return names;
 };
-const closeLib = () => page.locator(".lib-close").click();
+const closeLib = async () => {
+  if (await page.locator(".lib-dialog").count()) await page.locator(".lib-close").click();
+};
 
 await page.goto(url, { waitUntil: "networkidle" });
 await page.waitForSelector(".bjs-canvas .djs-shape");
@@ -77,7 +89,7 @@ next = g2;
 await page.getByText("＋ Neu").click();
 await page.waitForFunction(() => document.querySelector(".doc-name")?.textContent === "Neuer Prozess");
 await generate("Ferienantrag …");
-let names = await libNames();
+let names = await libEventually((n) => n.length === 2);
 check(`second process has its own entry (${names.join(" | ")})`, names.length === 2 && names.some((n) => n.startsWith("Ferienantrag")) && names.some((n) => n.startsWith("Ausschreibung")));
 
 await page.locator(".lib-row", { hasText: "Ausschreibung" }).getByText("Öffnen").click();
@@ -85,8 +97,7 @@ await page.waitForFunction((n) => document.querySelectorAll(".djs-shape").length
 check("opening restores the first process", (await shapes()) === n1);
 
 await page.locator(".doc-name").click(); // prompt → "Offerte (umbenannt)"
-await waitSaved();
-names = await libNames();
+names = await libEventually((n) => n.some((x) => x.startsWith("Offerte (umbenannt)")));
 check(`rename via toolbar is saved (${names.join(" | ")})`, names.some((n) => n.startsWith("Offerte (umbenannt)")));
 await page.locator(".lib-row", { hasText: "Ferienantrag" }).getByText("Duplizieren").click();
 await page.waitForFunction(() => document.querySelectorAll(".lib-row").length === 3);
@@ -107,20 +118,18 @@ await waitSaved();
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForFunction(() => document.querySelector(".doc-name")?.textContent?.startsWith("Ferienantrag"), null, { timeout: 8000 });
 check("preview not accepted, after reload still there", (await page.locator(".ai-generate textarea").first().inputValue()) === "ohne Übernehmen");
-names = await libNames();
+names = await libEventually((n) => n.length === 3);
 check(`… as its own entry (${names.join(" | ")})`, names.length === 3);
 await closeLib();
 // … and "Verwerfen" removes the draft entry and returns to the previous process.
 await page.locator(".ai-generate textarea").first().fill("wird verworfen");
 await page.getByText("BPMN-Entwurf generieren").click();
 await page.waitForSelector(".preview-bar");
-await waitSaved();
-check(`draft saved while previewed (${(await libNames()).length} entries)`, (await page.locator(".lib-row").count()) === 4);
+check(`draft saved while previewed (${(await libEventually((n) => n.length === 4)).length} entries)`, (await page.locator(".lib-row").count()) === 4);
 await closeLib();
 await page.getByText("↩ Verwerfen").click();
 await page.waitForFunction(() => !document.querySelector(".preview-bar"));
-await waitSaved();
-names = await libNames();
+names = await libEventually((n) => n.length === 3);
 check(`reject removes the draft entry (${names.join(" | ")})`, names.length === 3);
 check("reject returns to the previous process", (await page.locator(".doc-name").textContent()).startsWith("Ferienantrag"));
 await page.locator(".lib-row.current").getByText("Löschen").click(); // back to two processes for the backup check

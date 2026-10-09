@@ -6,8 +6,8 @@
    UI (React + bpmn-js)          Modeler · Toolbar · Panels · AiPanel
           │ actions ▲ issues + review
           ▼         │
-   zustand store (src/state) ───── POST /api/generate ─────▶ Netlify edge function
-          │         ▲        ◀──── NDJSON (Graph IR) ──────       └─▶ Claude API
+   zustand store (src/state) ───── POST /api/generate ─────▶ Worker (server/llm.ts)
+          │         ▲        ◀── Claude SSE, passed through ──    └─▶ Claude API
    saveXML│         │importXML
           ▼         │
    src/core (no DOM): model · layout · routing · validation · xml · ai
@@ -90,17 +90,18 @@ autotable), with a running footer. The PDF libraries are loaded on demand.
 
 ## AI pipeline (`src/core/ai`)
 
-**LLM path (primary).** `remote.ts` posts the text to
-`netlify/edge-functions/generate.ts`, which calls Claude with a fixed prompt and
-a JSON schema (`graph-schema.ts`) via structured outputs and streams progress +
-the result back as NDJSON. The result is a *Graph IR* — nodes, flows, lanes —
+**LLM path (primary).** `remote.ts` posts the text to `server/llm.ts` (Cloudflare
+Worker, or Netlify edge function), which calls Claude with a fixed prompt and
+a JSON schema (`graph-schema.ts`) via structured outputs and passes Claude's
+event stream through unparsed; `stream.ts` reads it in the browser (progress,
+stop reason, fallback continuation, errors). The result is a *Graph IR* — nodes, flows, lanes —
 so alternative paths with their own activities, parallel split/join and merges
 are expressible. `graph.ts` sanitizes it (unknown ids/types, dangling paths,
 missing start/end; every repair is recorded) and maps it to a BpmnModel. The
 LLM only emits JSON; it never writes BPMN or touches the canvas.
 
 **AI editing.** `edit.ts` converts the current diagram to Graph IR with its
-real element ids (`modelToGraphIR`); the edge function sends it with the
+real element ids (`modelToGraphIR`); the server sends it with the
 instruction under a separate edit prompt (same modelling rules, "smallest
 change, keep ids"); `applyEditedGraph` maps the returned IR with those ids,
 carries over what the IR does not hold (documentation, markers, boundary

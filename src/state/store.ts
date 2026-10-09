@@ -162,7 +162,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     toastTimer = setTimeout(() => set({ toast: undefined }), error ? 12000 : 4000);
   },
 
-  saveToLibrary: async () => {
+  saveToLibrary: () => enqueueSave(async () => {
     const m = get().modeler;
     if (!m) return;
     if (saveTimer) clearTimeout(saveTimer);
@@ -203,17 +203,20 @@ export const useEditor = create<EditorState>((set, get) => ({
       set({ saveState: "error", saveError: msg });
       get().showToast(`⚠ Speichern fehlgeschlagen: ${msg} – Häufige Ursache: privates/Inkognito-Fenster oder Browser-Einstellung „Websitedaten blockieren/beim Schliessen löschen“.`, true);
     }
-  },
+  }),
 
-  saveNow: async () => {
+  saveNow: () => enqueueSave(async () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = undefined;
     const m = get().modeler;
     // What is on screen is saved, an AI preview included: closing the tab
     // without clicking "Übernehmen" must not lose a generated process.
     if (!m) return;
+    const docAtStart = get().doc;
     const xml = await getXml(m);
     const s = get();
+    // The process was switched while reading: that switch saved and will save again.
+    if (s.doc !== docAtStart) return;
     const sig = signature(xml, s);
     if (sig === lastSaved.sig) {
       set({ saveState: "saved", saveError: undefined });
@@ -238,8 +241,14 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ saveState: "saving" });
     try {
       await putProcess(rec);
-      lastSaved = { sig, xml };
       if (!s.doc.id) void requestPersistence();
+      if (get().doc !== docAtStart) {
+        // Switched to another process while writing: this record belongs to the
+        // previous one; never attach its id to the process now on screen.
+        set((st) => ({ libraryVersion: st.libraryVersion + 1 }));
+        return;
+      }
+      lastSaved = { sig, xml };
       setLastOpened(rec.id);
       set((st) => ({
         doc: { ...st.doc, id: rec.id, name: rec.name, createdAt: rec.createdAt },
@@ -251,7 +260,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       const e = err as Error;
       set({ saveState: "error", saveError: `${e.name && e.name !== "Error" ? e.name + ": " : ""}${e.message}` });
     }
-  },
+  }),
 
   newProcess: async (opts = {}) => {
     const m = get().modeler;
@@ -434,8 +443,13 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!m || !s.pending) return;
     const { prevDoc, newDoc } = s.pending;
     if (newDoc && prevDoc) {
+      // Let a running autosave finish first, so the draft's id is known (or it was never written).
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = undefined;
+      await saveQueue;
+      const draft = get().doc;
       // The rejected draft had its own library entry: remove it and go back to the previous process.
-      if (s.doc.id && s.doc.id !== prevDoc.id) await deleteProcess(s.doc.id).catch(() => undefined);
+      if (draft.id && draft.id !== prevDoc.id) await deleteProcess(draft.id).catch(() => undefined);
       set((st) => ({ doc: prevDoc, libraryVersion: st.libraryVersion + 1 }));
       setLastOpened(prevDoc.id);
     }
@@ -621,6 +635,12 @@ function unhighlight(m: Modeler, ids: string[]): void {
 const AUTOSAVE_MS = 1500;
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
+/** Saves run strictly one after another: an autosave must never finish after a process switch it did not see. */
+let saveQueue: Promise<void> = Promise.resolve();
+function enqueueSave(task: () => Promise<void>): Promise<void> {
+  saveQueue = saveQueue.then(task, task).catch(() => undefined);
+  return saveQueue;
+}
 /** what was last written to (or read from) the library */
 let lastSaved: { sig: string; xml: string } = { sig: "", xml: "" };
 

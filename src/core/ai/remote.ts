@@ -2,6 +2,7 @@ import type { BpmnModel } from "../model";
 import { GraphIR, mapGraphToModel, sanitizeGraphIR } from "./graph";
 import { GraphDiff, applyEditedGraph, diffGraphs, modelToGraphIR } from "./edit";
 import type { ReviewReport } from "./types";
+import { readClaudeStream } from "./stream";
 
 export interface GenerationResultGraph {
   model: BpmnModel;
@@ -10,10 +11,11 @@ export interface GenerationResultGraph {
 }
 
 /**
- * Client for the server-side LLM endpoint (`netlify/edge-functions/generate.ts`).
+ * Client for the server-side LLM endpoint (`server/llm.ts`, run as Cloudflare
+ * Worker or Netlify edge function).
  *
- * The API key never reaches the browser: the edge function holds it, fixes the
- * model/prompt/schema, and streams NDJSON events back. The browser only sends
+ * The API key never reaches the browser: the server holds it, fixes the
+ * model/prompt/schema, and passes Claude's event stream back. The browser only sends
  * the process text and receives a Graph IR, which is sanitized and mapped
  * locally — the LLM never writes BPMN or touches the canvas directly.
  */
@@ -57,7 +59,7 @@ export async function editViaLlm(current: BpmnModel, instruction: string, opts: 
   return { model, ir, review, diff: diffGraphs(before, ir) };
 }
 
-/** POST to the edge function and read its NDJSON stream until the result. */
+/** POST to the AI endpoint and read Claude's event stream until the result. */
 async function callEndpoint(payload: Record<string, unknown>, opts: LlmCallOptions): Promise<unknown> {
   const doFetch = opts.fetchImpl ?? fetch;
   let resp: Response;
@@ -73,9 +75,14 @@ async function callEndpoint(payload: Record<string, unknown>, opts: LlmCallOptio
     throw new LlmUnavailableError("KI-Dienst nicht erreichbar.");
   }
   const ctype = resp.headers.get("content-type") ?? "";
-  if (!ctype.includes("application/x-ndjson")) {
-    // 401/403 come from the site's access gate, not from the AI service: the
-    // login expired or was revoked while the page stayed open.
+  if (ctype.includes("application/json") && !resp.ok) {
+    const err = (await resp.json().catch(() => ({}))) as { code?: string; message?: string; error?: string };
+    // The access gate answers {error: "login_required"}: the login expired or was revoked.
+    if (err.error === "login_required") throw new LlmUnavailableError(`Anmeldung abgelaufen (HTTP ${resp.status}) – Seite neu laden und Zugangscode eingeben.`);
+    if (err.code === "no_key") throw new LlmUnavailableError(err.message ?? "Kein API-Schlüssel hinterlegt.");
+    throw new Error(err.message ?? `KI-Dienst meldet Fehler (HTTP ${resp.status}).`);
+  }
+  if (!ctype.includes("text/event-stream")) {
     if (resp.status === 401 || resp.status === 403) {
       throw new LlmUnavailableError(`Anmeldung abgelaufen (HTTP ${resp.status}) – Seite neu laden und Zugangscode eingeben.`);
     }
@@ -83,33 +90,10 @@ async function callEndpoint(payload: Record<string, unknown>, opts: LlmCallOptio
   }
   if (!resp.body) throw new LlmUnavailableError("KI-Dienst lieferte keine Antwort.");
 
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  let graph: unknown;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (value) buf += decoder.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line) continue;
-      const ev = JSON.parse(line) as ServerEvent;
-      if (ev.type === "progress") opts.onProgress?.({ phase: ev.phase, chars: ev.chars });
-      else if (ev.type === "result") graph = ev.graph;
-      else if (ev.type === "error") {
-        if (ev.code === "no_key") throw new LlmUnavailableError(ev.message);
-        throw new Error(ev.message);
-      }
-    }
-    if (done) break;
+  const { text } = await readClaudeStream(resp.body, opts.onProgress);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("Die KI-Antwort war kein gültiges JSON.");
   }
-  if (graph === undefined) throw new Error("KI-Antwort unvollständig (Verbindung abgebrochen).");
-  return graph;
 }
-
-type ServerEvent =
-  | { type: "progress"; phase: "thinking" | "writing"; chars?: number }
-  | { type: "result"; graph: unknown }
-  | { type: "error"; code: string; message: string };

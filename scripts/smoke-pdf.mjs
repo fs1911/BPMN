@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { SSE_HEADERS, claudeSse } from "./lib/claude-sse.mjs";
 import { readFileSync } from "node:fs";
 
 // Generates a diagram (LLM path mocked), opens the process description and
@@ -16,8 +17,8 @@ page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 await page.route("**/api/generate", (route) =>
   route.fulfill({
     status: 200,
-    headers: { "content-type": "application/x-ndjson" },
-    body: JSON.stringify({ type: "result", graph }) + "\n",
+    headers: SSE_HEADERS,
+    body: claudeSse(graph),
   }),
 );
 

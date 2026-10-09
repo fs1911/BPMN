@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { SSE_HEADERS, claudeSse } from "./lib/claude-sse.mjs";
 import { readFileSync } from "node:fs";
 
 // Drives the LLM generation path in the real app with /api/generate mocked
@@ -15,10 +16,8 @@ page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 await page.route("**/api/generate", (route) =>
   route.fulfill({
     status: 200,
-    headers: { "content-type": "application/x-ndjson" },
-    body: [{ type: "progress", phase: "thinking" }, { type: "progress", phase: "writing", chars: 900 }, { type: "result", graph }]
-      .map((e) => JSON.stringify(e) + "\n")
-      .join(""),
+    headers: SSE_HEADERS,
+    body: claudeSse(graph),
   }),
 );
 

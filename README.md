@@ -82,19 +82,28 @@ without a text layer are reported instead of being sent. Limit: 30 000
 characters per generation (checked before anything is sent). Visio is not
 supported yet; old `.doc` files must be saved as `.docx`.
 
-- **Netlify:** set `ANTHROPIC_API_KEY` under *Site configuration → Environment
-  variables* and redeploy. The key lives only in the edge function
-  [`netlify/edge-functions/generate.ts`](netlify/edge-functions/generate.ts)
-  (`POST /api/generate`); the browser never sees it.
-- **Locally:** `npx netlify dev` (with `ANTHROPIC_API_KEY` in the environment)
-  serves the app and the edge function together. Plain `npm run dev` has no
+- **Cloudflare Workers (primary host):** [`worker/index.ts`](worker/index.ts)
+  serves the built app as static assets, with the access gate
+  ([`server/access.ts`](server/access.ts)) in front of everything and the AI
+  endpoint ([`server/llm.ts`](server/llm.ts), `POST /api/generate`) behind it.
+  Configuration in [`wrangler.jsonc`](wrangler.jsonc); secrets
+  `ANTHROPIC_API_KEY`, `ACCESS_CODES`, `ACCESS_SECRET` are set in the
+  Cloudflare dashboard. The key never reaches the browser.
+- **Netlify (alternative):** the same server code runs as edge functions
+  (`netlify/edge-functions/*`, thin wrappers); variables under *Project
+  configuration → Environment variables*.
+- **Locally:** `npm run build && npx wrangler dev --var ANTHROPIC_API_KEY:sk-…
+  --var ACCESS_CODES:me:some-long-code --var ACCESS_SECRET:…` serves app,
+  gate and endpoint in Cloudflare's runtime. Plain `npm run dev` has no
   `/api/generate`, so it always uses the offline parser.
 
 The endpoint is intentionally narrow (fixed model, prompt and output schema,
-input ≤ 12 000 characters) so it cannot be used as a general Claude proxy — but
-it has **no authentication or rate limit**: anyone who can reach the site can
-spend API credit. Put the site behind Netlify password protection or add a
-limit before sharing the URL widely.
+input ≤ 30 000 characters) so it cannot be used as a general Claude proxy. It
+passes Claude's event stream through unparsed and the browser reads it
+([`src/core/ai/stream.ts`](src/core/ai/stream.ts)): on Cloudflare's free plan a
+request may use only ~10 ms CPU, and piping bytes costs almost none. Access
+needs a personal access code; there is no per-person rate limit, so set a
+spending limit in the Anthropic console.
 
 Try it: open the app → **KI-Modellierung** tab → keep the German sample text →
 **BPMN-Entwurf generieren**. Then type an instruction such as *„Eine Freigabe
@@ -181,7 +190,7 @@ Gateway branches to the same side share one corner as a trunk
   **deterministic channel router** for back edges (each loop folds into its own
   horizontal lane beneath the content, fanned so loops never stack). Ports are
   fanned along node sides for clean gateway splits/joins.
-- **AI pipeline:** primary path is `text → edge function → Claude (structured
+- **AI pipeline:** primary path is `text → server (Worker) → Claude (structured
   output: Graph IR = nodes + flows + lanes) → sanitize/repair → BPMN mapping →
   layout → route → quality assessment → review`. The LLM emits JSON only; it
   never writes BPMN or touches the canvas. Offline fallback is the

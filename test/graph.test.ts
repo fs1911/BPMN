@@ -1,3 +1,4 @@
+import { SSE_HEADERS, claudeSse } from "../scripts/lib/claude-sse.mjs";
 import { describe, expect, it } from "vitest";
 import {
   LlmUnavailableError,
@@ -131,43 +132,45 @@ describe("quality assessment", () => {
   });
 });
 
-describe("generateViaLlm (NDJSON client)", () => {
-  const ndjson = (events: unknown[], chunkSize = 17) => {
-    const body = events.map((e) => JSON.stringify(e) + "\n").join("");
+describe("generateViaLlm (Claude event stream)", () => {
+  // Response body split into small, odd-sized chunks to exercise buffering.
+  const sse = (body: string, chunkSize = 17) => {
     const enc = new TextEncoder();
-    // split mid-line to exercise buffering
     const stream = new ReadableStream<Uint8Array>({
       start(c) {
         for (let i = 0; i < body.length; i += chunkSize) c.enqueue(enc.encode(body.slice(i, i + chunkSize)));
         c.close();
       },
     });
-    return new Response(stream, { headers: { "content-type": "application/x-ndjson" } });
+    return new Response(stream, { headers: SSE_HEADERS });
   };
+  const jsonError = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-  it("streams progress and maps the result", async () => {
+  it("reads the stream, reports progress and maps the result", async () => {
     const phases: string[] = [];
     const res = await generateViaLlm(RECLAMATION_TEXT, {
-      fetchImpl: async () =>
-        ndjson([
-          { type: "progress", phase: "thinking" },
-          { type: "progress", phase: "writing", chars: 100 },
-          { type: "result", graph: RECLAMATION_GRAPH },
-        ]),
+      fetchImpl: async () => sse(claudeSse(RECLAMATION_GRAPH)),
       onProgress: (p) => phases.push(p.phase),
     });
-    expect(phases).toEqual(["thinking", "writing"]);
+    expect(phases[0]).toBe("thinking");
+    expect(phases).toContain("writing");
     expect(res.review.source).toBe("llm");
     expect(Object.values(res.model.nodes).some((n) => n.type === "parallelGateway")).toBe(true);
   });
 
-  it("treats a missing endpoint or key as unavailable (→ offline fallback)", async () => {
+  it("joins the text around a mid-answer fallback (partial + continuation)", async () => {
+    const res = await generateViaLlm(RECLAMATION_TEXT, { fetchImpl: async () => sse(claudeSse(RECLAMATION_GRAPH, { fallback: true }), 5) });
+    expect(res.ir.nodes.length).toBe(RECLAMATION_GRAPH.nodes.length);
+  });
+
+  it("treats a missing endpoint, key or network as unavailable (→ offline fallback)", async () => {
     await expect(
       generateViaLlm("x", { fetchImpl: async () => new Response("<html>", { status: 404, headers: { "content-type": "text/html" } }) }),
     ).rejects.toBeInstanceOf(LlmUnavailableError);
-    await expect(
-      generateViaLlm("x", { fetchImpl: async () => ndjson([{ type: "error", code: "no_key", message: "kein Key" }]) }),
-    ).rejects.toBeInstanceOf(LlmUnavailableError);
+    await expect(generateViaLlm("x", { fetchImpl: async () => jsonError(503, { code: "no_key", message: "kein Key" }) })).rejects.toBeInstanceOf(
+      LlmUnavailableError,
+    );
+    await expect(generateViaLlm("x", { fetchImpl: async () => jsonError(401, { error: "login_required" }) })).rejects.toThrow("Anmeldung abgelaufen");
     await expect(
       generateViaLlm("x", {
         fetchImpl: async () => {
@@ -177,12 +180,11 @@ describe("generateViaLlm (NDJSON client)", () => {
     ).rejects.toBeInstanceOf(LlmUnavailableError);
   });
 
-  it("surfaces model errors and truncated streams", async () => {
-    await expect(
-      generateViaLlm("x", { fetchImpl: async () => ndjson([{ type: "error", code: "refusal", message: "abgelehnt" }]) }),
-    ).rejects.toThrow("abgelehnt");
-    await expect(generateViaLlm("x", { fetchImpl: async () => ndjson([{ type: "progress", phase: "thinking" }]) })).rejects.toThrow(
-      "unvollständig",
-    );
+  it("surfaces server errors, refusals, truncation, overload and lost connections", async () => {
+    await expect(generateViaLlm("x", { fetchImpl: async () => jsonError(400, { code: "bad_input", message: "Text zu lang" }) })).rejects.toThrow("Text zu lang");
+    await expect(generateViaLlm("x", { fetchImpl: async () => sse(claudeSse(RECLAMATION_GRAPH, { stopReason: "refusal" })) })).rejects.toThrow("abgelehnt");
+    await expect(generateViaLlm("x", { fetchImpl: async () => sse(claudeSse(RECLAMATION_GRAPH, { stopReason: "max_tokens" })) })).rejects.toThrow("abgeschnitten");
+    await expect(generateViaLlm("x", { fetchImpl: async () => sse(claudeSse(RECLAMATION_GRAPH, { error: "overloaded_error" })) })).rejects.toThrow("ausgelastet");
+    await expect(generateViaLlm("x", { fetchImpl: async () => sse(claudeSse(RECLAMATION_GRAPH, { cutAfter: 9 })) })).rejects.toThrow("unvollständig");
   });
 });

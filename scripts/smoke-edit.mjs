@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { SSE_HEADERS, claudeSse } from "./lib/claude-sse.mjs";
 import { readFileSync } from "node:fs";
 
 // AI editing in the real app, with /api/generate mocked (no API key needed):
@@ -27,7 +28,7 @@ await page.route("**/api/generate", async (route) => {
     out.to = "new1";
     graph.nodes.find((n) => n.name === "Garantiefall?").name = "Garantie gültig?";
   }
-  await route.fulfill({ status: 200, headers: { "content-type": "application/x-ndjson" }, body: JSON.stringify({ type: "result", graph }) + "\n" });
+  await route.fulfill({ status: 200, headers: SSE_HEADERS, body: claudeSse(graph) });
 });
 
 await page.goto(url, { waitUntil: "networkidle" });

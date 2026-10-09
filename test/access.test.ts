@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkToken, handleAccess, makeToken, parseCodes } from "../netlify/edge-functions/access";
+import { checkToken, handleAccess, makeToken, parseCodes } from "../server/access";
 
 const env = { codes: "filip:alpha-1234-xyz, anna:beta-5678-uvw", secret: "s3cret" };
 const app = async () => new Response("APP", { status: 200 });

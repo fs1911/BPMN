@@ -11,11 +11,11 @@ const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromi
 const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
-page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+page.on("console", (m) => { if (m.type() === "error" && !m.text().includes("Failed to load resource")) errors.push(m.text()); });
 let sent;
 await page.route("**/api/generate", (route) => {
   sent = JSON.parse(route.request().postData() ?? "{}").text;
-  route.fulfill({ status: 200, headers: { "content-type": "application/x-ndjson" }, body: JSON.stringify({ type: "error", code: "api", message: "mock" }) + "\n" });
+  route.fulfill({ status: 502, headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "api", message: "mock" }) });
 });
 
 await page.goto(url, { waitUntil: "networkidle" });

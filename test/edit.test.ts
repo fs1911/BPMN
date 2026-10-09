@@ -1,3 +1,4 @@
+import { SSE_HEADERS, claudeSse } from "../scripts/lib/claude-sse.mjs";
 import { describe, expect, it } from "vitest";
 import {
   applyEditedGraph,
@@ -92,7 +93,7 @@ describe("AI editing of an existing diagram", () => {
       fetchImpl: async (_url, init) => {
         sent = JSON.parse(String(init!.body));
         const graph = insertApproval(sent.graph);
-        return new Response(JSON.stringify({ type: "result", graph }) + "\n", { headers: { "content-type": "application/x-ndjson" } });
+        return new Response(claudeSse(graph), { headers: SSE_HEADERS });
       },
     });
     expect(sent.mode).toBe("edit");

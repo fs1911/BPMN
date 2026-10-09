@@ -23,5 +23,5 @@
       "@ui/*": ["src/ui/*"]
     }
   },
-  "include": ["src", "test", "netlify"]
+  "include": ["src", "test", "netlify", "server", "worker"]
 }
