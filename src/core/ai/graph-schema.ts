@@ -297,7 +297,7 @@ A section "Ablaufzeichnung … aus dem Word-Dokument" is a flowchart read from s
 
 The text may be Markdown converted from a Word or PDF document (procedure, work instruction, process description). Model only the process flow it describes. Purpose, scope, definitions, referenced documents, change history, distribution lists and similar sections are context, not steps. Responsibility tables (who does what) tell you the lanes. Text in table rows separated by "|" belongs together.
 
-If a <focus> block is present, the text describes several processes and the owner chose one of them: model ONLY the process named in <focus>. Where it hands over to or is triggered by one of the other processes, use a message or signal event (or a pool for an external party) named after that other process instead of modelling its steps, and note it in "assumptions".
+If a <focus> block is present, the text describes several processes and the owner chose one of them: model ONLY the process named in <focus>. Where it hands over to or is triggered by one of the other processes, use a message or signal event (or a pool for an external party) named after that other process instead of modelling its steps, and note it in "assumptions". "title", "purpose", "scope" and "owner" describe THIS process, not the whole document: if the text states them only for the whole procedure, narrow them to the chosen process (e.g. purpose of the payment run instead of the purpose of accounts payable) and say so in "assumptions"; "" where nothing fits.
 
 ${GRAPH_RULES}
 

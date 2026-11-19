@@ -57,6 +57,8 @@ describe("server: scope check and focus", () => {
 
   it("the prompts carry the focus, layout, best-practice and improvement rules", () => {
     expect(GRAPH_SYSTEM_PROMPT).toMatch(/<focus> block/);
+    // profile of the chosen process, not the copied document header
+    expect(GRAPH_SYSTEM_PROMPT).toMatch(/describe THIS process, not the whole document/);
     expect(GRAPH_SYSTEM_PROMPT).toMatch(/happy path/);
     expect(GRAPH_SYSTEM_PROMPT).toMatch(/Method and Style/);
     expect(GRAPH_SYSTEM_PROMPT).toMatch(/never built into the graph/);

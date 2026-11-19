@@ -465,13 +465,33 @@ export const useEditor = create<EditorState>((set, get) => ({
   revalidate: async () => {
     const m = get().modeler;
     if (!m) return;
+    let model: BpmnModel;
     try {
-      const model = await getModelFromModeler(m);
+      model = await getModelFromModeler(m);
       set({ diagramHash: contentHash(await getXml(m)) });
-      set({ issues: [...simulationIssues(model), ...validate(model), ...layoutIssues(model)], description: describeProcess(model, describeOpts(get())) });
     } catch {
-      /* mid-edit invalid XML; ignore */
+      return; // mid-edit invalid XML; the next change validates again
     }
+    // Each part on its own: one failing check must not leave the others
+    // (above all the description) showing the previous process.
+    const failed: string[] = [];
+    const run = <T,>(label: string, fn: () => T, fallback: T): T => {
+      try {
+        return fn();
+      } catch (err) {
+        console.error(`${label} fehlgeschlagen`, err);
+        failed.push(label);
+        return fallback;
+      }
+    };
+    const issues = [
+      ...run("Simulation", () => simulationIssues(model), []),
+      ...run("Normprüfung", () => validate(model), []),
+      ...run("Layout-Prüfung", () => layoutIssues(model), []),
+    ];
+    const description = run("Prozessbeschreibung", () => describeProcess(model, describeOpts(get())), undefined);
+    set({ issues, description });
+    if (failed.length) get().showToast(`⚠ ${failed.join(", ")} konnte für dieses Diagramm nicht erstellt werden (Fehler im Programm, bitte melden).`, true);
   },
 
   undo: () => get().modeler?.get<any>("commandStack").undo(),
@@ -546,8 +566,19 @@ export const useEditor = create<EditorState>((set, get) => ({
   refreshDescription: async () => {
     const m = get().modeler;
     if (!m) return;
-    const model = await getModelFromModeler(m);
-    set({ description: describeProcess(model, describeOpts(get())) });
+    let model: BpmnModel;
+    try {
+      model = await getModelFromModeler(m);
+    } catch {
+      return; // mid-edit invalid XML
+    }
+    try {
+      set({ description: describeProcess(model, describeOpts(get())) });
+    } catch (err) {
+      console.error("Prozessbeschreibung fehlgeschlagen", err);
+      set({ description: undefined });
+      get().showToast("⚠ Die Prozessbeschreibung konnte für dieses Diagramm nicht erstellt werden (Fehler im Programm, bitte melden).", true);
+    }
   },
 
   exportPdf: async () => {
