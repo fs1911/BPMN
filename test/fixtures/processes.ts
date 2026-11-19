@@ -327,6 +327,66 @@ export const BAUETAPPE = g(
   { s: "message", bm: "message" },
 );
 
+/**
+ * A real accounts-receivable diagram (rebuilt from its step table): three
+ * independent flows with their own triggers — invoicing, incoming payment,
+ * weekly dunning run — in one pool, plus bank and debtor as external pools.
+ * Laid out from one left edge, the flows ran through each other's lanes.
+ */
+export const DEBITOREN = g(
+  "Debitorenbuchhaltung",
+  ["Bauführer", "Buchhaltung", "System"],
+  [
+    "s1:S:Rechnungserstellung ausgelöst@Bauführer",
+    "t2:u:Rechnung im Sorba erstellen@Bauführer",
+    "t3:s:Rechnung via DocuWare an JobRouter weiterleiten@System",
+    "t4:u:Rechnung in JobRouter mit DocuWare öffnen@Buchhaltung",
+    "t5:u:Rechnung im Abacus erfassen@Buchhaltung",
+    "t6:u:DocuWare-PDF «gebucht» stempeln@Buchhaltung",
+    "t7:u:Baustellen-Nr. im JobRouter eintragen@Buchhaltung",
+    "e8:E:Rechnung erfasst@Buchhaltung",
+    "s9:S:Gutschriftanzeige der Bank erhalten@Buchhaltung",
+    "t10:u:Zahlungseingang im Abacus verbuchen@Buchhaltung",
+    "t11:u:Bankbeleg archivieren@Buchhaltung",
+    "e12:E:Zahlungseingang verbucht@Buchhaltung",
+    "s13:S:Wöchentlicher Mahnlauf fällig@Buchhaltung",
+    "t14:u:Mahnlauf im Abacus aufbereiten@Buchhaltung",
+    "g15:X:Rechnung an Kanton oder Bund?@Buchhaltung",
+    "t16:u:Beleg aus Mahnlauf löschen@Buchhaltung",
+    "t17:snd:Aufgabe via Intranet versenden@Buchhaltung",
+    "t19:u:Einträge im Intranet prüfen@Buchhaltung",
+    "g20:X:Mahnstopp vermerkt?@Buchhaltung",
+    "t21:u:Beleg aus Mahnlauf löschen@Buchhaltung",
+    "t23:u:Mahnstufen prüfen@Buchhaltung",
+    "g24:X:Betreibung (Stufe 4)?@Buchhaltung",
+    "t25:u:Betreibung via CFO abklären@Buchhaltung",
+    "g26:X:Betreibung einleiten?@Buchhaltung",
+    "t27:callActivity:Prozess Betreibung starten@Buchhaltung",
+    "t28:u:Beleg aus Mahnlauf löschen@Buchhaltung",
+    "e29:E:Betreibung eingeleitet@Buchhaltung",
+    "t30:s:Mahnstufe 3 erneut versenden@System",
+    "t32:snd:Mahnungen drucken und versenden@Buchhaltung",
+    "e33:E:Mahnlauf abgeschlossen@Buchhaltung",
+  ],
+  [
+    "s1>t2", "t2>t3", "t3>t4", "t4>t5", "t5>t6", "t6>t7", "t7>e8",
+    "s9>t10", "t10>t11", "t11>e12",
+    "s13>t14", "t14>g15", "g15>t16:Ja", "g15>t19:Nein", "t16>t17", "t17>t19",
+    "t19>g20", "g20>t21:Ja", "g20>t23:Nein", "t21>t23", "t23>g24", "g24>t25:Ja", "g24>t32:Nein",
+    "t25>g26", "g26>t27:Ja", "g26>t30:Nein", "t27>t28", "t28>e29", "t30>t32", "t32>e33",
+  ],
+  { s9: "message", s13: "timer" },
+);
+DEBITOREN.pools = [
+  { id: "p_bank", name: "Bank" },
+  { id: "p_deb", name: "Debitor" },
+];
+DEBITOREN.messageFlows = [
+  { from: "p_bank", to: "s9", name: "Gutschriftanzeige" },
+  { from: "t30", to: "p_deb", name: "Mahnstufe 3" },
+  { from: "t32", to: "p_deb", name: "Mahnung" },
+];
+
 export const REKLAMATION = { pools: [], messageFlows: [], ...reklamation } as unknown as GraphIR;
 
 export const CORPUS: Record<string, GraphIR> = {
@@ -337,4 +397,5 @@ export const CORPUS: Record<string, GraphIR> = {
   kredit: KREDIT,
   ausschreibung: AUSSCHREIBUNG,
   bauetappe: BAUETAPPE,
+  debitoren: DEBITOREN,
 };

@@ -1,5 +1,6 @@
 import { BpmnModel, cloneModel } from "../model";
-import { placeExternalPools, routeMessageFlows, routeScope, RouteOptions } from "../routing/router";
+import { DEFAULT_ROUTING, placeExternalPools, routeMessageFlows, routeScope, RouteOptions } from "../routing/router";
+import { countCrossings } from "../geometry/geometry";
 import { LayoutOptions, LayoutResult, contentBounds, fitLabelSizes, layoutScope } from "./layered";
 import { placeLabels } from "./labels";
 import { measureLayout } from "./metrics";
@@ -64,6 +65,7 @@ export function autoLayout(
     if (!best || score < best.score) best = { model: candidate, result, score };
   }
   if (best!.model !== model) copyGeometry(best!.model, model);
+  repairCrossings(model, scope, opts.routing);
   placeArtifacts(model, links);
 
   placeExternalPools(model, scope);
@@ -109,3 +111,41 @@ export function rerouteOnly(model: BpmnModel, scope = model.rootProcessId, opts:
 }
 
 export { contentBounds };
+
+/**
+ * Crossings left after the layout: try each of the two flows again with the
+ * router, where a crossing costs as much as a long detour. A new route is kept
+ * only if the diagram then has fewer crossings and nothing got worse
+ * (overlaps, lines through shapes or outside the pool) and the flow did not
+ * become more than ~1 500 px longer. Crossings are allowed when unavoidable —
+ * the aim is to avoid them.
+ */
+function repairCrossings(model: BpmnModel, scope: string, routing: Partial<RouteOptions> = {}): void {
+  const seq = () => Object.values(model.edges).filter((e) => e.type === "sequenceFlow" && e.waypoints && model.nodes[e.source]?.parent === scope);
+  const hard = (m: ReturnType<typeof measureLayout>) => m.overlaps + m.shapeHits + m.outsidePool + m.nodeOverlaps;
+  const pathLength = (pts: { x: number; y: number }[] = []) => pts.slice(1).reduce((s, p, i) => s + Math.abs(p.x - pts[i].x) + Math.abs(p.y - pts[i].y), 0);
+  for (let round = 0; round < 6; round++) {
+    const edges = seq();
+    const crossing = new Set<string>();
+    for (let i = 0; i < edges.length; i++)
+      for (let j = i + 1; j < edges.length; j++)
+        if (countCrossings(edges[i].waypoints!, edges[j].waypoints!)) (crossing.add(edges[i].id), crossing.add(edges[j].id));
+    if (!crossing.size) return;
+    const before = measureLayout(model, scope);
+    let improved = false;
+    for (const id of crossing) {
+      const e = model.edges[id];
+      const old = e.waypoints;
+      const keep = new Set(seq().map((x) => x.id).filter((x) => x !== id));
+      e.waypoints = undefined;
+      routeScope(model, scope, { ...DEFAULT_ROUTING, ...routing, crossPenalty: 60_000 }, { keep });
+      const after = measureLayout(model, scope);
+      if (after.crossings < before.crossings && hard(after) <= hard(before) && pathLength(e.waypoints) <= pathLength(old) + 1500) {
+        improved = true;
+        break;
+      }
+      e.waypoints = old;
+    }
+    if (!improved) return;
+  }
+}

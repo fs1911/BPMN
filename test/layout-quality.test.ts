@@ -16,10 +16,12 @@ describe("layout quality (corpus)", () => {
       const m = measureLayout(model);
       // the real tender process (6 lanes, 6 loops across lanes, 8 message flows) keeps a few crossings;
       // the construction stage (8 loops, 4 lanes) had 12, then 3 — now none
-      const allowed: Record<string, number> = { ausschreibung: 7 }; // tender: 3 sequence + 4 message-flow crossings
+      const allowed: Record<string, number> = { ausschreibung: 6 }; // tender: 2 sequence + 4 message-flow crossings
       expect(m.crossings).toBeLessThanOrEqual(allowed[name] ?? 0);
       // no giant detours around the diagram (was 1 717 px before loop channels)
-      expect(m.maxDetour).toBeLessThanOrEqual(400); // the boundary exception path of the construction stage was 1 158 px
+      // a detour that removes a crossing is accepted (crossings are worse than a longer line):
+      // dunning "Betreibung? Nein" goes around the CFO step instead of through two flows
+      expect(m.maxDetour).toBeLessThanOrEqual(700); // the boundary exception path of the construction stage was 1 158 px
       expect(m.overlaps).toBe(0);
       expect(m.shapeHits).toBe(0);
       expect(m.outsidePool).toBe(0);
@@ -62,7 +64,7 @@ describe("layout quality (corpus)", () => {
       expect(m.diagonals).toBe(0);
       // every element moved by hand and only the lines re-laid: the dense tender and construction
       // processes keep crossings ("Diagramm aufräumen" removes them again)
-      const nudged: Record<string, number> = { ausschreibung: 14, bauetappe: 16 };
+      const nudged: Record<string, number> = { ausschreibung: 14, bauetappe: 16, debitoren: 2 };
       expect(m.crossings).toBeLessThanOrEqual(nudged[name] ?? 1);
     }
   });

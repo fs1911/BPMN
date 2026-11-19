@@ -1,4 +1,5 @@
-import { STORE_SIZE, autoLayout } from "../layout";
+import { STORE_SIZE, autoLayout, layoutScore, measureLayout } from "../layout";
+import { proposeLaneOrder } from "../layout/lane-order";
 import {
   BpmnModel,
   EventDefinitionType,
@@ -6,6 +7,7 @@ import {
   createLane,
   createNode,
   createParticipant,
+  cloneModel,
   emptyModel,
   isActivity,
 } from "../model";
@@ -359,6 +361,17 @@ export function mapGraphToModel(irIn: GraphIR, opts: MapGraphOptions = {}): Mapp
 
   opts.beforeLayout?.(model);
   autoLayout(model, model.rootProcessId, opts.preferOrder ? { layout: { preferOrder: opts.preferOrder } } : {});
+  // A new diagram: try the lane order in which flows cross the fewest lanes, keep it if it lays out better.
+  // (An edited diagram keeps the owner's order.)
+  // Crossings first: another order is only taken with fewer crossings (or as many and a better layout).
+  const proposal = opts.keepIds ? undefined : proposeLaneOrder(model);
+  if (proposal) {
+    const alt = cloneModel(model);
+    alt.processes[alt.rootProcessId].lanes = proposal;
+    autoLayout(alt, alt.rootProcessId);
+    const [ca, cm] = [measureLayout(alt).crossings, measureLayout(model).crossings];
+    if (ca < cm || (ca === cm && layoutScore(alt, alt.rootProcessId) < layoutScore(model, model.rootProcessId))) Object.assign(model, alt);
+  }
 
   const assessment = assessModel(model, { sourceText: opts.sourceText, ambiguities: ir.ambiguities.length });
   const decisions = ir.nodes

@@ -74,6 +74,7 @@ export function routeScope(model: BpmnModel, scope: string, options: Partial<Rou
   const grid = buildGrid(model, scope, scopeNodes, opts);
   const occ = { h: new Float32Array(grid.W * grid.H), v: new Float32Array(grid.W * grid.H), near: new Float32Array(grid.W * grid.H) };
   const usedPorts = new Map<string, number>(); // "node|x|y" → count
+  markLaneBorders(model, scope, grid, occ);
 
   const keep = ctx.keep ?? new Set<string>();
   for (const e of edges) {
@@ -601,6 +602,26 @@ function snapRun(path: Point[], port: Port, atEnd: boolean): void {
     if ((vertical ? p.x : p.y) !== ref) break;
     if (vertical) p.x = port.point.x;
     else p.y = port.point.y;
+  }
+}
+
+/**
+ * A flow running along a lane border reads as if it belonged to both lanes (or
+ * vanishes in the line). Cells on and next to an inner lane border cost extra,
+ * so flows cross a border but don't follow it.
+ */
+const LANE_BORDER_PENALTY = 40;
+function markLaneBorders(model: BpmnModel, scope: string, g: Grid, occ: Occupancy): void {
+  const lanes = (model.processes[scope]?.lanes ?? []).map((l) => model.lanes[l]).filter(Boolean);
+  for (const l of lanes) {
+    const y = l.bounds.y + l.bounds.height;
+    if (lanes.every((o) => o.bounds.y + o.bounds.height <= y)) continue; // the pool's lower edge
+    const cy = Math.round((y - g.originY) / g.step);
+    for (const row of [cy - 1, cy, cy + 1]) {
+      if (row < 0 || row >= g.H) continue;
+      const cost = row === cy ? LANE_BORDER_PENALTY : LANE_BORDER_PENALTY / 2;
+      for (let cx = 0; cx < g.W; cx++) occ.near[row * g.W + cx] += cost;
+    }
   }
 }
 

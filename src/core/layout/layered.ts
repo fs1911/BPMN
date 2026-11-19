@@ -975,6 +975,43 @@ export function layoutScope(model: BpmnModel, scope: string, options: Partial<La
 
 const PROXY_PREFIX = "__boundary_proxy__";
 
+/**
+ * Flows that are not connected with each other (e.g. invoicing, incoming
+ * payment and dunning run in one diagram, each with its own start) are laid
+ * out one after another instead of on top of each other: their lines then
+ * cannot cross — before, a flow changing lanes ran through the others.
+ * Components keep the order of their first element in the model; single
+ * unconnected elements stay where they are.
+ */
+function separateComponents(nodes: string[], adj: Adjacency, rank: Record<string, number>): void {
+  const seen = new Set<string>();
+  const comps: string[][] = [];
+  for (const start of nodes) {
+    if (seen.has(start)) continue;
+    const comp: string[] = [];
+    const stack = [start];
+    seen.add(start);
+    while (stack.length) {
+      const id = stack.pop()!;
+      comp.push(id);
+      for (const e of [...(adj.outgoing[id] ?? []), ...(adj.incoming[id] ?? [])]) {
+        const other = e.source === id ? e.target : e.source;
+        if (!seen.has(other) && rank[other] !== undefined) (seen.add(other), stack.push(other));
+      }
+    }
+    comps.push(comp);
+  }
+  const multi = comps.filter((c) => c.length > 1);
+  if (multi.length < 2) return;
+  let offset = 0;
+  for (const comp of multi) {
+    const min = Math.min(...comp.map((id) => rank[id]));
+    const max = Math.max(...comp.map((id) => rank[id]));
+    for (const id of comp) rank[id] = rank[id] - min + offset;
+    offset += max - min + 1;
+  }
+}
+
 function boundaryProxies(model: BpmnModel, scope: string): string[] {
   const ids: string[] = [];
   for (const e of Object.values(model.edges)) {
@@ -1009,6 +1046,7 @@ function layoutScopeInner(model: BpmnModel, scope: string, options: Partial<Layo
   }
   const order = topoOrder(filteredAdj, backEdges);
   const rank = assignRanks(order, filteredAdj, backEdges);
+  separateComponents(layoutNodes, filteredAdj, rank);
 
   const proc = model.processes[scope];
   const laneIds = proc && proc.lanes.length ? [...proc.lanes] : [];
