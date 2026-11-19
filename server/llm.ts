@@ -3,6 +3,8 @@ import {
   GRAPH_EDIT_PROMPT,
   GRAPH_IR_SCHEMA,
   GRAPH_SYSTEM_PROMPT,
+  MAX_IMAGES,
+  MAX_IMAGE_CHARS,
   MAX_INSTRUCTION_CHARS,
   MAX_TEXT_CHARS,
 } from "../src/core/ai/graph-schema.ts";
@@ -11,7 +13,8 @@ import {
  * Server side of the AI endpoint, shared by the Cloudflare Worker and the
  * Netlify edge function:
  *
- *   POST /api/generate  { text }                                → new process
+ *   POST /api/generate  { text, images? }                       → new process
+ *                       images: [{ mediaType, data (base64) }], shrunk in the browser
  *   POST /api/generate  { mode: "edit", graph, instruction }    → edited process
  *
  * The server validates the input, fixes model, prompt and output schema (so
@@ -28,6 +31,10 @@ import {
 
 export const MODEL = "claude-opus-5";
 const MAX_GRAPH_CHARS = 120_000;
+/** whole request: text + every image at its limit, with room to spare */
+const MAX_BODY_BYTES = MAX_IMAGES * MAX_IMAGE_CHARS + 4 * MAX_TEXT_CHARS + 200_000;
+const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+type ImageBlock = { type: "image"; source: { type: "base64"; media_type: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: string } };
 
 export interface LlmServerEnv {
   apiKey?: string;
@@ -44,7 +51,11 @@ const json = (status: number, code: string, message: string) =>
 export async function handleGenerate(req: Request, env: LlmServerEnv): Promise<Response> {
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
 
-  let body: { text?: unknown; mode?: unknown; instruction?: unknown; graph?: unknown } = {};
+  // Checked before parsing: parsing an oversized body alone would exhaust the CPU budget.
+  if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) {
+    return json(413, "bad_input", "Anfrage zu gross – bitte weniger oder kleinere Bilder.");
+  }
+  let body: { text?: unknown; mode?: unknown; instruction?: unknown; graph?: unknown; images?: unknown } = {};
   try {
     body = await req.json();
   } catch {
@@ -52,7 +63,7 @@ export async function handleGenerate(req: Request, env: LlmServerEnv): Promise<R
   }
 
   let system: string;
-  let content: string;
+  let content: string | (ImageBlock | { type: "text"; text: string })[];
   if (body.mode === "edit") {
     const instruction = String(body.instruction ?? "").trim();
     const graph = JSON.stringify(body.graph ?? null);
@@ -63,10 +74,13 @@ export async function handleGenerate(req: Request, env: LlmServerEnv): Promise<R
     content = `<current_process>\n${graph}\n</current_process>\n<instruction>\n${instruction}\n</instruction>`;
   } else {
     const text = String(body.text ?? "").trim();
-    if (!text) return json(400, "bad_input", "Bitte einen Prozesstext eingeben.");
+    const images = parseImages(body.images);
+    if (typeof images === "string") return json(400, "bad_input", images);
+    if (!text && !images.length) return json(400, "bad_input", "Bitte einen Prozesstext eingeben oder ein Bild anhängen.");
     if (text.length > MAX_TEXT_CHARS) return json(400, "bad_input", `Text zu lang (${text.length} Zeichen, maximal ${MAX_TEXT_CHARS}).`);
     system = GRAPH_SYSTEM_PROMPT;
-    content = `<process_description>\n${text}\n</process_description>`;
+    const description = `<process_description>\n${text || "(Kein Text – der Prozess steht in den Bildern.)"}\n</process_description>`;
+    content = images.length ? [...images, { type: "text", text: description }] : description;
   }
 
   if (!env.apiKey) return json(503, "no_key", "Auf dem Server ist kein ANTHROPIC_API_KEY hinterlegt.");
@@ -96,4 +110,21 @@ export async function handleGenerate(req: Request, env: LlmServerEnv): Promise<R
     if (err instanceof Anthropic.APIError) return json(502, "api", `KI-Dienst meldet Fehler ${err.status ?? ""}: ${err.message}`);
     return json(502, "api", `KI-Aufruf fehlgeschlagen: ${(err as Error).message}`);
   }
+}
+
+/** Images from the browser → content blocks, or a German error message. */
+function parseImages(raw: unknown): ImageBlock[] | string {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) return "Bilder im falschen Format.";
+  if (raw.length > MAX_IMAGES) return `Zu viele Bilder (${raw.length}, maximal ${MAX_IMAGES}).`;
+  const blocks: ImageBlock[] = [];
+  for (const [i, img] of raw.entries()) {
+    const mediaType = String((img as { mediaType?: unknown })?.mediaType ?? "");
+    const data = (img as { data?: unknown })?.data;
+    if (!IMAGE_TYPES.has(mediaType)) return `Bild ${i + 1}: nur JPEG, PNG, WebP oder GIF.`;
+    // Only the length here: a full base64 check over megabytes would cost CPU, and the API rejects bad data itself.
+    if (typeof data !== "string" || !data || data.length > MAX_IMAGE_CHARS) return `Bild ${i + 1} fehlt oder ist zu gross.`;
+    blocks.push({ type: "image", source: { type: "base64", media_type: mediaType as ImageBlock["source"]["media_type"], data } });
+  }
+  return blocks;
 }

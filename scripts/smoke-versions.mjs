@@ -13,7 +13,7 @@ const check = (label, ok) => {
   console.log(`${ok ? "OK  " : "FAIL"} ${label}`);
   if (!ok) process.exitCode = 1;
 };
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/opt/pw-browsers/chromium" });
 const ctx = await browser.newContext({ viewport: { width: 1500, height: 950 } });
 const page = await ctx.newPage();
 const errors = [];

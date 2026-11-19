@@ -1,5 +1,5 @@
 import type { BpmnModel } from "../model";
-import { GraphIR, mapGraphToModel, sanitizeGraphIR } from "./graph";
+import { GraphIR, ProcessImage, mapGraphToModel, sanitizeGraphIR } from "./graph";
 import { GraphDiff, applyEditedGraph, diffGraphs, modelToGraphIR } from "./edit";
 import type { ReviewReport } from "./types";
 import { readClaudeStream } from "./stream";
@@ -42,11 +42,14 @@ export interface LlmCallOptions {
 export interface GenerateOptions extends LlmCallOptions {
   /** send violations of the standard back to the AI once (a second, paid call) */
   selfCorrect?: boolean;
+  /** photos / page images of the process, read by the AI together with the text */
+  images?: ProcessImage[];
 }
 
-/** Text → new diagram. */
+/** Text and/or images → new diagram. */
 export async function generateViaLlm(text: string, opts: GenerateOptions = {}): Promise<GenerationResultGraph> {
-  const graph = await callEndpoint({ text }, opts);
+  const images = (opts.images ?? []).map((i) => ({ mediaType: i.mediaType, data: i.data }));
+  const graph = await callEndpoint(images.length ? { text, images } : { text }, opts);
   const { ir, repairs } = sanitizeGraphIR(graph);
   if (!ir.nodes.length) throw new Error("Die KI hat keinen Prozess erkannt.");
   const { model, review } = mapGraphToModel(ir, { sourceText: text, repairs });

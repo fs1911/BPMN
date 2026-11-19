@@ -208,12 +208,28 @@ External parties
 
 "lang" is the language of the input ("de" or "en"); all names, conditions, assumptions and questions are in that language.`;
 
+/** An image of the process (photo, scanned page, drawn flowchart), base64 without the data: prefix. */
+export interface ProcessImage {
+  mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+  data: string;
+}
+/** Images per generation (also enforced server-side). */
+export const MAX_IMAGES = 5;
+/**
+ * base64 characters per image (~240 KB JPEG). Keeps a request with every
+ * image under ~1.6 MB: the server parses and re-serialises it within the
+ * CPU budget of a free Cloudflare Worker.
+ */
+export const MAX_IMAGE_CHARS = 320_000;
+
 /** Longest process text accepted for generation (also enforced server-side). */
 export const MAX_TEXT_CHARS = 30_000;
 /** Longest edit instruction (several answered questions fit). */
 export const MAX_INSTRUCTION_CHARS = 6_000;
 
 export const GRAPH_SYSTEM_PROMPT = `You turn business process descriptions (SOPs, emails, meeting notes, free prose) into a BPMN 2.0 process graph. Your output is rendered as a diagram that a process owner reviews, so it must be faithful to the text and readable.
+
+The input may include images: photos of whiteboards or handwritten notes, scanned pages, pages of a document, or an existing flowchart or process diagram in any notation. Read them like text and model the process they show; text and images describe the same process. Arrows, boxes and swimlanes in a drawn diagram are strong hints for flows, steps and lanes, but apply the modelling rules below rather than copying a faulty drawing. For elements taken from an image, "source" quotes the words written there ("" if there are none). Never guess unreadable parts: put them into "ambiguities".
 
 The text may be Markdown converted from a Word or PDF document (procedure, work instruction, process description). Model only the process flow it describes. Purpose, scope, definitions, referenced documents, change history, distribution lists and similar sections are context, not steps. Responsibility tables (who does what) tell you the lanes. Text in table rows separated by "|" belongs together.
 

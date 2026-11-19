@@ -15,7 +15,7 @@ const q3 = { about: "Stellvertretung", question: "Wer ist die Stellvertretung de
 const generated = { ...base, ambiguities: [q1, q2] };
 
 let editBody;
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/opt/pw-browsers/chromium" });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));

@@ -24,7 +24,7 @@ const g2 = {
   pools: [], messageFlows: [], systems: [], dataObjects: [], assumptions: [], ambiguities: [],
 };
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/opt/pw-browsers/chromium" });
 const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 }, acceptDownloads: true });
 const page = await ctx.newPage();
 const errors = [];
@@ -156,7 +156,7 @@ await browser.close();
 
 // Explicit save button: success toast with read-back, and a clear error when storage is blocked.
 {
-  const b2 = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b2 = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/opt/pw-browsers/chromium" });
   const p = await b2.newPage();
   await p.goto(url, { waitUntil: "networkidle" });
   await p.waitForSelector(".djs-shape");
@@ -169,7 +169,7 @@ await browser.close();
   check("Ctrl+S saves too", (await p.locator(".toast").textContent()).includes("gespeichert"));
   await b2.close();
 
-  const b3 = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b3 = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/opt/pw-browsers/chromium" });
   const q = await b3.newPage();
   await q.addInitScript(() => { indexedDB.open = () => { throw new DOMException("The user denied permission to access the database.", "SecurityError"); }; });
   await q.goto(url, { waitUntil: "networkidle" });

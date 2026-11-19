@@ -3,6 +3,7 @@ import { DescriptionPanel } from "./DescriptionPanel";
 import { useEditor } from "@state/store";
 import { ai } from "@core/index";
 import { documentToMarkdown } from "../import/document";
+import { imagesLeft } from "../import/images";
 
 
 export function AiPanel() {
@@ -22,28 +23,41 @@ export function AiPanel() {
   const [dragOver, setDragOver] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const tooLong = text.length > ai.MAX_TEXT_CHARS;
+  const images = useEditor((s) => s.inputImages);
 
-  // Word/PDF → Markdown in the browser; the result lands in the text field
-  // for review before anything is sent to the AI.
-  const importFile = async (file: File | undefined) => {
-    if (!file) return;
-    setImporting(file.name);
+  // Word/PDF → Markdown in the browser, photos and picture pages → shrunk images;
+  // both land below for review before anything is sent to the AI.
+  const importFiles = async (list: FileList | File[] | null | undefined) => {
+    const files = [...(list ?? [])];
+    if (!files.length) return;
     setImportNote(undefined);
-    try {
-      const { markdown, warnings } = await documentToMarkdown(file);
-      if (markdown.trim()) setText(markdown);
-      const size = `${markdown.length.toLocaleString("de-CH")} Zeichen`;
-      const empty = !markdown.trim();
-      setImportNote({
-        text: [empty ? `„${file.name}“: kein Text übernommen.` : `„${file.name}“ übernommen (${size}). Bitte prüfen und Abschnitte ohne Ablauf löschen, dann generieren.`, ...warnings].join(" "),
-        error: empty,
-      });
-    } catch (err) {
-      setImportNote({ text: (err as Error).message || "Datei konnte nicht gelesen werden.", error: true });
-    } finally {
-      setImporting(undefined);
+    const notes: string[] = [];
+    const texts: string[] = [];
+    let added = [...store.getState().inputImages];
+    let error = false;
+    for (const file of files) {
+      setImporting(file.name);
+      try {
+        const { markdown, warnings, images: found } = await documentToMarkdown(file, imagesLeft(added.length));
+        if (markdown.trim()) {
+          texts.push(markdown);
+          notes.push(`„${file.name}“ übernommen (${markdown.length.toLocaleString("de-CH")} Zeichen).`);
+        } else if (found.length) notes.push(`„${file.name}“ als Bild angehängt.`);
+        added = [...added, ...found];
+        notes.push(...warnings);
+      } catch (err) {
+        error = true;
+        notes.push((err as Error).message || `„${file.name}“ konnte nicht gelesen werden.`);
+      }
     }
+    setImporting(undefined);
+    if (texts.length) setText(texts.join("\n\n"));
+    store.getState().setInputImages(added);
+    if (texts.length) notes.push("Bitte prüfen und Abschnitte ohne Ablauf löschen, dann generieren.");
+    else if (!error && added.length) notes.push("Ein Text ist nicht nötig – ergänzende Hinweise im Textfeld helfen der KI aber.");
+    setImportNote({ text: notes.join(" "), error: error && !texts.length && !added.length });
   };
+  const removeImage = (i: number) => store.getState().setInputImages(images.filter((_, k) => k !== i));
 
   return (
     <div className="panel ai">
@@ -58,16 +72,17 @@ export function AiPanel() {
           <h4>Prozess beschreiben</h4>
           <div className="doc-import">
             <button disabled={busy || !!importing} onClick={() => fileInput.current?.click()}>
-              {importing ? "Lese Datei…" : "Word / PDF laden"}
+              {importing ? `Lese ${importing}…` : "Word / PDF / Foto laden"}
             </button>
-            <span className="muted">oder Datei ins Textfeld ziehen</span>
+            <span className="muted">oder Dateien ins Textfeld ziehen</span>
             <input
               ref={fileInput}
               type="file"
               hidden
-              accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              multiple
+              accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*,.heic,.heif"
               onChange={(e) => {
-                void importFile(e.target.files?.[0]);
+                void importFiles(e.target.files);
                 e.target.value = "";
               }}
             />
@@ -88,15 +103,38 @@ export function AiPanel() {
               if (!e.dataTransfer.files.length) return;
               e.preventDefault();
               setDragOver(false);
-              void importFile(e.dataTransfer.files[0]);
+              void importFiles(e.dataTransfer.files);
             }}
-            placeholder="Arbeitsanweisung, E-Mail, Besprechungsnotizen oder Schrittliste einfügen – oder Word/PDF laden…"
+            placeholder="Arbeitsanweisung, E-Mail, Besprechungsnotizen oder Schrittliste einfügen – oder Word, PDF oder Fotos (Whiteboard, Notizen, Skizze) laden…"
           />
           {importNote && <p className={`import-note${importNote.error ? " error" : ""}`}>{importNote.text}</p>}
           <p className={`char-count${tooLong ? " error" : ""}`}>
             {text.length.toLocaleString("de-CH")} / {ai.MAX_TEXT_CHARS.toLocaleString("de-CH")} Zeichen{tooLong ? " – zu lang, bitte kürzen" : ""}
           </p>
-          <button disabled={busy || tooLong || !text.trim()} onClick={() => void store.getState().generate(text)}>{busy ? "Generiere…" : "BPMN-Entwurf generieren"}</button>
+          {images.length > 0 && (
+            <div className="img-attachments" aria-label="Angehängte Bilder">
+              <div className="img-head">
+                <span>
+                  📎 {images.length} / {ai.MAX_IMAGES} Bild(er) für die KI
+                </span>
+                <button className="link" disabled={busy} onClick={() => store.getState().setInputImages([])}>
+                  alle entfernen
+                </button>
+              </div>
+              <ul>
+                {images.map((img, i) => (
+                  <li key={`${img.name}-${i}`} title={`${img.name} · ${img.width}×${img.height} px · ${Math.round((img.data.length * 3) / 4 / 1024)} KB`}>
+                    <img src={img.thumb} alt={img.name} />
+                    <span className="img-name">{img.name}</span>
+                    <button className="img-remove" disabled={busy} onClick={() => removeImage(i)} aria-label={`${img.name} entfernen`}>
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <button disabled={busy || tooLong || (!text.trim() && !images.length)} onClick={() => void store.getState().generate(text)}>{busy ? "Generiere…" : "BPMN-Entwurf generieren"}</button>
           <label className="self-correct" title="Findet die Prüfung nach dem Generieren Verstösse gegen die BPMN-Norm, bekommt die KI sie einmal zur Korrektur zurück. Kostet dann eine zweite KI-Anfrage (Zeit und Geld).">
             <input type="checkbox" checked={selfCorrect} onChange={(e) => store.getState().setSelfCorrect(e.target.checked)} />
             <span>Normverstösse automatisch korrigieren lassen (kostet dann eine zweite KI-Anfrage)</span>

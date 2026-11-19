@@ -1,45 +1,73 @@
 import { htmlToMarkdown } from "@core/convert/html-to-markdown";
 import { pdfToMarkdown, type PdfPage } from "@core/convert/pdf-to-markdown";
+import { MAX_IMAGES } from "@core/ai";
+import { base64ToAttachment, canvasToAttachment, imageFileToAttachment, type ImageAttachment } from "./images";
 
 /**
- * Word / PDF file → Markdown, entirely in the browser. The file itself never
- * leaves the machine; only the Markdown the user reviewed in the text field
- * is sent to the AI. The converter libraries are loaded on first use so the
- * editor itself stays small.
+ * Word / PDF file or photo → Markdown and images, in the browser. The file
+ * itself never leaves the machine: the Markdown the user reviewed in the text
+ * field and the shrunk images listed under it are what is sent to the AI.
+ * Pictures inside a Word file, scanned PDF pages and PDF pages that hold a
+ * diagram become images; text stays text (far fewer tokens). The converter
+ * libraries are loaded on first use so the editor itself stays small.
  */
 
 export interface ImportedDocument {
   markdown: string;
   /** user-facing notes (scan detected, images ignored, …) */
   warnings: string[];
+  /** pictures for the AI (photos, scanned pages, diagrams) */
+  images: ImageAttachment[];
 }
+
+const IMAGE_FILE = /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i;
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-export async function documentToMarkdown(file: File): Promise<ImportedDocument> {
+/** `slots`: how many more images may be added (the AI takes at most MAX_IMAGES). */
+export async function documentToMarkdown(file: File, slots = MAX_IMAGES): Promise<ImportedDocument> {
   if (file.size > MAX_FILE_BYTES) throw new Error(`Datei zu gross (${Math.round(file.size / 1024 / 1024)} MB, maximal 25 MB).`);
   const name = file.name.toLowerCase();
-  if (name.endsWith(".docx")) return docx(file);
-  if (name.endsWith(".pdf")) return pdf(file);
+  if (name.endsWith(".docx")) return docx(file, slots);
+  if (name.endsWith(".pdf")) return pdf(file, slots);
+  if (IMAGE_FILE.test(name) || file.type.startsWith("image/")) {
+    if (!slots) return { markdown: "", warnings: [`„${file.name}“ nicht übernommen – höchstens ${MAX_IMAGES} Bilder pro Generierung.`], images: [] };
+    return { markdown: "", warnings: [], images: [await imageFileToAttachment(file)] };
+  }
   if (name.endsWith(".doc")) throw new Error("Alte Word-Dateien (.doc) werden nicht unterstützt – bitte in Word als .docx speichern.");
-  throw new Error("Nur Word (.docx) und PDF werden unterstützt.");
+  throw new Error("Unterstützt werden Word (.docx), PDF und Fotos (JPG, PNG, WebP).");
 }
 
-async function docx(file: File): Promise<ImportedDocument> {
+async function docx(file: File, slots: number): Promise<ImportedDocument> {
   const mammoth = await import("mammoth");
+  const embedded: { data: string; type: string }[] = [];
   const { value: html } = await mammoth.convertToHtml(
     { arrayBuffer: await file.arrayBuffer() },
-    // Images would only cost tokens without helping the model.
-    { convertImage: mammoth.images.imgElement(async () => ({ src: "" })) },
+    {
+      convertImage: mammoth.images.imgElement(async (image) => {
+        embedded.push({ data: await image.read("base64"), type: image.contentType });
+        return { src: "" };
+      }),
+    },
   );
   const markdown = htmlToMarkdown(html);
   const warnings: string[] = [];
-  if (/<img/i.test(html)) warnings.push("Bilder und eingebettete Grafiken wurden ignoriert – nur der Text wird verwendet.");
-  if (!markdown.trim()) warnings.push("Im Dokument wurde kein Text gefunden.");
-  return { markdown, warnings };
+  // Pictures (a drawn flowchart, a photo of the board) go to the AI as images; icons and logos are skipped.
+  const images: ImageAttachment[] = [];
+  let skipped = 0;
+  for (const [i, img] of embedded.entries()) {
+    const att = await base64ToAttachment(img.data, img.type, `Bild ${i + 1} aus ${file.name}`);
+    if (!att) continue;
+    if (images.length < slots) images.push(att);
+    else skipped++;
+  }
+  if (images.length) warnings.push(`${images.length} Bild(er) aus dem Dokument werden mitgeschickt – unten prüfen und unnötige entfernen.`);
+  if (skipped) warnings.push(`${skipped} weitere(s) Bild(er) nicht übernommen – höchstens ${MAX_IMAGES} pro Generierung.`);
+  if (!markdown.trim() && !images.length) warnings.push("Im Dokument wurde kein Text gefunden.");
+  return { markdown, warnings, images };
 }
 
-async function pdf(file: File): Promise<ImportedDocument> {
+async function pdf(file: File, slots: number): Promise<ImportedDocument> {
   // Legacy build: the modern one relies on brand-new JS (Math.sumPrecise) and
   // silently returns truncated text in browsers that lack it.
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -47,6 +75,8 @@ async function pdf(file: File): Promise<ImportedDocument> {
   pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
   const pages: PdfPage[] = [];
+  const warnings: string[] = [];
+  const images: ImageAttachment[] = [];
   try {
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
@@ -60,17 +90,42 @@ async function pdf(file: File): Promise<ImportedDocument> {
       pages.push({ items, height: page.getViewport({ scale: 1 }).height });
       page.cleanup();
     }
+    const result = pdfToMarkdown(pages);
+    // Scans and diagram pages carry no usable text: the AI gets them as pictures.
+    const asImages = result.scanned ? pages.map((_, i) => i + 1) : result.diagramPages;
+    const rendered = asImages.slice(0, slots);
+    for (const n of rendered) images.push(await renderPage(doc, n, `Seite ${n} von ${file.name}`));
+    if (rendered.length) {
+      warnings.push(
+        result.scanned
+          ? `Das PDF enthält (fast) keinen Text – vermutlich ein Scan. ${rendered.length === 1 ? "Die Seite wird" : `${rendered.length} Seiten werden`} als Bild an die KI geschickt.`
+          : `Seite ${rendered.join(", ")} ${rendered.length === 1 ? "sieht" : "sehen"} nach einer Grafik/einem Diagramm aus und ${rendered.length === 1 ? "wird" : "werden"} als Bild mitgeschickt.`,
+      );
+    }
+    if (asImages.length > rendered.length) {
+      warnings.push(`Seite ${asImages.slice(rendered.length).join(", ")} nicht als Bild übernommen – höchstens ${MAX_IMAGES} Bilder pro Generierung.`);
+    }
+    return { markdown: result.markdown, warnings, images };
   } finally {
     void doc.destroy();
   }
-  const result = pdfToMarkdown(pages);
-  const warnings: string[] = [];
-  if (result.diagramPages.length) {
-    const list = result.diagramPages.join(", ");
-    warnings.push(`Seite ${list} sieht nach einer Grafik/einem Diagramm aus und wurde weggelassen – deren Beschriftungen ergeben ohne Pfeile keinen lesbaren Text.`);
+}
+
+/** One PDF page drawn at about 1600 px on its long side. */
+async function renderPage(doc: { getPage(n: number): Promise<any> }, n: number, name: string): Promise<ImageAttachment> {
+  const page = await doc.getPage(n);
+  try {
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: 1600 / Math.max(base.width, base.height) });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+    return canvasToAttachment(canvas, name);
+  } finally {
+    page.cleanup();
   }
-  if (result.scanned) {
-    warnings.push("Das PDF enthält (fast) keinen Text – vermutlich ein Scan oder ein exportiertes Bild. Bitte die Word-Vorlage verwenden oder den Text abtippen.");
-  }
-  return { markdown: result.markdown, warnings };
 }

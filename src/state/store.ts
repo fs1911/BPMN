@@ -15,6 +15,7 @@ import { buildProcessPdf, downloadBlob, fileBase } from "@ui/export/pdf";
 import { loadShowTaskTypes, saveShowTaskTypes, setShowTaskTypes } from "@ui/bpmn/plain-tasks";
 import { initialXml } from "@ui/bpmn/bridge";
 import { StoredProcess, newId } from "@core/library/library";
+import type { ImageAttachment } from "@ui/import/images";
 import { addVersion, deleteProcess, getLastOpened, getProcess, listProcesses, putProcess, requestPersistence, setLastOpened } from "@ui/library/db";
 
 /** localStorage key of the self-correction switch (read when the store is created) */
@@ -74,6 +75,9 @@ interface EditorState {
   /** AI input field (saved with the process) */
   inputText: string;
   setInputText: (t: string) => void;
+  /** photos / page images sent to the AI with the text (not saved in the library: too large) */
+  inputImages: ImageAttachment[];
+  setInputImages: (images: ImageAttachment[]) => void;
   doc: CurrentDoc;
   saveState: SaveState;
   saveError?: string;
@@ -196,6 +200,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ inputText: t });
     get().noteChange();
   },
+  inputImages: [],
+  setInputImages: (images) => set({ inputImages: images }),
   libraryChanged: () => set((s) => ({ libraryVersion: s.libraryVersion + 1 })),
 
   noteChange: () => {
@@ -322,7 +328,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const m = get().modeler;
     if (!m) return;
     if (!opts.skipSave) await get().saveNow();
-    set({ doc: { name: "Neuer Prozess", nameAuto: true }, inputText: "", aiReview: undefined, aiMessages: [], pending: undefined });
+    set({ doc: { name: "Neuer Prozess", nameAuto: true }, inputText: "", inputImages: [], aiReview: undefined, aiMessages: [], pending: undefined });
     await m.importXML(initialXml());
     fitViewport(m);
     await markPristine();
@@ -340,6 +346,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({
       doc: { id: rec.id, name: rec.name, nameAuto: false, createdAt: rec.createdAt },
       inputText: rec.sourceText,
+      inputImages: [],
       aiReview: review,
       pending: undefined,
       saveState: "saved",
@@ -524,7 +531,10 @@ export const useEditor = create<EditorState>((set, get) => ({
       set({ aiMessages: [...get().aiMessages, { role: "assistant", text: `Text zu lang (${text.length.toLocaleString("de-CH")} Zeichen, maximal ${ai.MAX_TEXT_CHARS.toLocaleString("de-CH")}). Bitte Abschnitte ohne Ablauf (Zweck, Begriffe, Änderungshistorie …) löschen.` }] });
       return;
     }
-    const shown = text.length > 400 ? `${text.slice(0, 300).trimEnd()} … (${text.length.toLocaleString("de-CH")} Zeichen)` : text;
+    const images = get().inputImages;
+    const imageNote = images.length ? `📎 ${images.length} Bild(er): ${images.map((i) => i.name).join(", ")}` : "";
+    const shownText = text.length > 400 ? `${text.slice(0, 300).trimEnd()} … (${text.length.toLocaleString("de-CH")} Zeichen)` : text;
+    const shown = [shownText, imageNote].filter(Boolean).join("\n");
     set({ aiBusy: true, aiProgress: "KI-Dienst wird kontaktiert…", aiMessages: [...get().aiMessages, { role: "user", text: shown }] });
     try {
       await get().saveNow(); // the open process is saved before a new one replaces it on screen
@@ -535,6 +545,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       try {
         let correcting = false;
         result = await ai.generateViaLlm(text, {
+          images,
           selfCorrect: get().selfCorrect,
           onProgress: (p) => {
             if (p.phase === "correcting") correcting = true;
@@ -549,11 +560,15 @@ export const useEditor = create<EditorState>((set, get) => ({
           },
         });
       } catch (err) {
+        // Images can only be read by the AI: without it there is nothing to fall back to.
+        if (images.length && !text.trim()) throw new Error(`${(err as Error).message} Bilder kann nur die KI lesen.`);
         // Offline / no key / API failure: fall back to the rule-based extractor, but say so.
         result = ai.generateFromTextSync(text);
         fallbackNote =
           (err instanceof ai.LlmUnavailableError ? `${(err as Error).message} ` : `KI-Fehler: ${(err as Error).message} `) +
-          "Stattdessen wurde der regelbasierte Offline-Parser verwendet – er versteht nur einfache Schrittlisten zuverlässig.\n";
+          "Stattdessen wurde der regelbasierte Offline-Parser verwendet – er versteht nur einfache Schrittlisten zuverlässig" +
+          (images.length ? " und liest keine Bilder" : "") +
+          ".\n";
       }
       const { model, review } = result;
       // A newly generated process goes into its own library entry instead of overwriting the open one.

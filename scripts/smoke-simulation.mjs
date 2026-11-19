@@ -6,7 +6,7 @@ import { chromium } from "playwright";
 import { readFileSync } from "node:fs";
 import { SSE_HEADERS, claudeSse } from "./lib/claude-sse.mjs";
 const graph = JSON.parse(readFileSync("samples/llm-reklamation.json", "utf8"));
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/opt/pw-browsers/chromium" });
 const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));

@@ -9,7 +9,7 @@ const graphFile = process.argv[2] || new URL("../samples/llm-reklamation.json", 
 const outPdf = process.argv[3] || "scripts/export.pdf";
 const graph = JSON.parse(readFileSync(graphFile, "utf8"));
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/opt/pw-browsers/chromium" });
 const page = await browser.newPage({ viewport: { width: 1500, height: 900 }, acceptDownloads: true });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));

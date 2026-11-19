@@ -124,16 +124,21 @@ removed red, new green, changed orange, plus a change list — and restores it
 (the current state is kept as a version first). Versions are part of the
 library backup file.
 
-**Word / PDF as input.** *Word / PDF laden* (or dropping a file on the text
-field) converts a `.docx` or a text PDF to Markdown **in the browser** — the
-file never leaves the machine; only the Markdown, shown in the text field for
-review first, goes to the AI. Headings, numbered steps, bullet lists and
-responsibility tables are kept; images, tables of contents, running
-headers/footers and page numbers are dropped. PDF pages that are a drawn
-diagram are left out (their labels make no sense without the arrows), scans
-without a text layer are reported instead of being sent. Limit: 30 000
-characters per generation (checked before anything is sent). Visio is not
-supported yet; old `.doc` files must be saved as `.docx`.
+**Word, PDF and photos as input.** *Word / PDF / Foto laden* (or dropping
+files on the text field; several at once) prepares everything **in the
+browser** and shows it for review before anything goes to the AI. Text of a
+`.docx` or a text PDF becomes Markdown in the text field (headings, numbered
+steps, bullet lists and responsibility tables kept; tables of contents,
+running headers/footers and page numbers dropped). Pictures become images the
+AI reads (Claude vision): photos (whiteboard, handwritten notes, a sketch,
+JPG/PNG/WebP), pictures inside a Word file, PDF pages that are a drawn
+diagram, and every page of a scan without a text layer. Images are shrunk to
+at most 1568 px and ~240 KB JPEG each, at most 5 per generation, listed with
+a preview and removable; they are not stored in the library (only the text
+is). Images alone are enough — a few words in the text field help. iPhone
+HEIC photos cannot be decoded by browsers; the app says how to send JPG.
+Limit: 30 000 characters of text. Visio is not supported yet; old `.doc`
+files must be saved as `.docx`.
 
 - **Cloudflare Workers (primary host):** [`worker/index.ts`](worker/index.ts)
   serves the built app as static assets, with the access gate

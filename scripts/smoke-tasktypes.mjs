@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 // Usage: node scripts/smoke-tasktypes.mjs graph.json
 const url = process.env.URL || "http://localhost:4173/";
 const graph = JSON.parse(readFileSync(process.argv[2], "utf8"));
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/opt/pw-browsers/chromium" });
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
