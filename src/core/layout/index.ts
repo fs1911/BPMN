@@ -149,3 +149,5 @@ function repairCrossings(model: BpmnModel, scope: string, routing: Partial<Route
     if (!improved) return;
   }
 }
+export { linkCrossings, cutWithLink } from "./links";
+export type { LinkResult } from "./links";

@@ -983,6 +983,33 @@ const PROXY_PREFIX = "__boundary_proxy__";
  * Components keep the order of their first element in the model; single
  * unconnected elements stay where they are.
  */
+/** Throwing and catching link event of the same name in this scope. */
+function linkPairs(model: BpmnModel, scope: string, inLayout: Set<string>): { throwId: string; catchId: string }[] {
+  const links = Object.values(model.nodes).filter((n) => n.parent === scope && n.eventDefinition === "link" && inLayout.has(n.id));
+  const pairs: { throwId: string; catchId: string }[] = [];
+  for (const t of links.filter((n) => n.type === "intermediateThrowEvent")) {
+    const c = links.find((n) => n.type === "intermediateCatchEvent" && (n.name ?? "").trim() === (t.name ?? "").trim());
+    if (c) pairs.push({ throwId: t.id, catchId: c.id });
+  }
+  return pairs;
+}
+
+const LINK_PROXY = "__link_proxy__";
+/** Ranking only: a flow from the throwing link event to each target of the catching one. */
+function withLinkProxies(adj: Adjacency, pairs: { throwId: string; catchId: string }[]): Adjacency {
+  if (!pairs.length) return adj;
+  const out: Adjacency = { outgoing: {}, incoming: {} };
+  for (const id of Object.keys(adj.outgoing)) (out.outgoing[id] = [...adj.outgoing[id]]), (out.incoming[id] = [...(adj.incoming[id] ?? [])]);
+  for (const { throwId, catchId } of pairs) {
+    for (const e of adj.outgoing[catchId] ?? []) {
+      const proxy = { id: `${LINK_PROXY}${throwId}_${e.target}`, type: "sequenceFlow", source: throwId, target: e.target } as Edge;
+      out.outgoing[throwId].push(proxy);
+      out.incoming[e.target].push(proxy);
+    }
+  }
+  return out;
+}
+
 function separateComponents(nodes: string[], adj: Adjacency, rank: Record<string, number>): void {
   const seen = new Set<string>();
   const comps: string[][] = [];
@@ -1040,13 +1067,22 @@ function layoutScopeInner(model: BpmnModel, scope: string, options: Partial<Layo
     filteredAdj.incoming[id] = (adj.incoming[id] ?? []).filter((e) => inLayout.has(e.source));
   }
 
-  const backEdges = detectBackEdges(filteredAdj);
+  // Link events (a jump replacing a long flow): ranked as if the jump were a
+  // flow, so both halves stay where the flow was and in one component.
+  const links = linkPairs(model, scope, inLayout);
+  const rankAdj = withLinkProxies(filteredAdj, links);
+  const backEdges = detectBackEdges(rankAdj);
   for (const e of Object.values(model.edges)) {
     if (e.type === "sequenceFlow") e.isBackEdge = backEdges.has(e.id) || backEdges.has(`${PROXY_PREFIX}${e.id}`);
   }
-  const order = topoOrder(filteredAdj, backEdges);
-  const rank = assignRanks(order, filteredAdj, backEdges);
-  separateComponents(layoutNodes, filteredAdj, rank);
+  const order = topoOrder(rankAdj, backEdges);
+  const rank = assignRanks(order, rankAdj, backEdges);
+  separateComponents(layoutNodes, rankAdj, rank);
+  // the catching link event stands directly before its target
+  for (const { catchId } of links) {
+    const succ = (filteredAdj.outgoing[catchId] ?? []).map((e) => rank[e.target]).filter((r) => r !== undefined);
+    if (succ.length) rank[catchId] = Math.max(0, Math.min(...succ) - 1);
+  }
 
   const proc = model.processes[scope];
   const laneIds = proc && proc.lanes.length ? [...proc.lanes] : [];

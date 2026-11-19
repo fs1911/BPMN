@@ -11,7 +11,7 @@ export function PreviewBar() {
   if (!pending) return null;
   return (
     <div className="preview-bar">
-      <span className="pb-tag">KI-Vorschau</span>
+      <span className="pb-tag">{pending.tag ?? "KI-Vorschau"}</span>
       <span className="pb-desc">{pending.description}</span>
       <div className="pb-actions">
         <button className="pb-accept" onClick={() => store.getState().acceptPreview()}>✓ Übernehmen</button>

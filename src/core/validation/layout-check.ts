@@ -37,7 +37,7 @@ export function layoutIssues(model: BpmnModel): ValidationIssue[] {
       style: true,
       severity: "info",
       message: `${m.crossings} Linienkreuzung(en).`,
-      hint: "„Diagramm aufräumen“ ordnet so an, dass möglichst wenige Kreuzungen entstehen; manche sind durch die Prozessstruktur unvermeidbar.",
+      hint: "„Diagramm aufräumen“ ordnet so an, dass möglichst wenige Kreuzungen entstehen; was dann noch kreuzt, kann „Kreuzungen → Links“ durch ein Paar Link-Ereignisse ersetzen (Kreuzungen mit Nachrichtenflüssen bleiben).",
     });
   }
   return issues;

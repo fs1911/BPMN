@@ -53,6 +53,13 @@ export function Toolbar() {
           {busy ? "…" : "Diagramm aufräumen"}
         </button>
         <button disabled={busy} onClick={() => store.getState().cleanupFlowsOnly()} title="Nur Kanten neu verlegen">Kanten aufräumen</button>
+        <button
+          disabled={busy}
+          onClick={() => void store.getState().crossingsToLinks()}
+          title="Kreuzungen, die das Aufräumen nicht vermeiden kann, durch ein Paar Link-Ereignisse ersetzen (Sprung innerhalb des Prozesses, ISO/IEC 19510). Nur wo die Kreuzungen wirklich weniger werden; als Vorschau."
+        >
+          Kreuzungen → Links
+        </button>
       </div>
       <div className="tb-group">
         <button onClick={() => store.getState().zoomIn()} title="Vergrößern">＋</button>

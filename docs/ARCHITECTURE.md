@@ -55,6 +55,19 @@ flow = prohibitive, crossing it = penalty); candidate ports (gateway corners,
 side points) chosen by the search; confined to the pool; off-grid ports snapped;
 a rip-up-and-reroute pass for edges that still cross.
 
+**Crossing reduction beyond ordering.** `layered.ts` lays independent
+components (no flow between them) one after another (`separateComponents`)
+and ranks link event pairs as if the jump were a flow, with the catching event
+pulled directly before its target. `lane-order.ts` proposes the lane order
+with the smallest weighted lane distance (exhaustive, 3–7 lanes); `ai/graph.ts`
+keeps it only with fewer crossings. `repairCrossings` (`index.ts`) re-routes
+crossing flows one at a time with a high crossing penalty, accepted only if
+crossings drop without new hard defects. The router makes running along a lane
+border expensive (a flow on the border reads as belonging to both lanes).
+`links.ts` (`linkCrossings`, on request): cuts the most crossed flow into a
+throw/catch link pair named "A – <target>", re-lays out, keeps it only if the
+crossings drop and no long detour appears; at most four pairs.
+
 **Labels** (`labels.ts`): node labels and branch conditions placed next to the
 gateway exit, avoiding shapes, flows, lane name strips and other labels.
 
@@ -126,6 +139,17 @@ highlight and the chat summary.
 always interrupting) and records every repair. The layout ranks the
 exception path as if it started at the host (temporary proxy flows in
 `layoutScope`), so it sits behind the activity instead of at the far left.
+
+**Scope check.** `checkScopeViaLlm` (server mode `scope`: own prompt, small
+`SCOPE_SCHEMA`, effort low) runs before generating from texts of 500+
+characters. Several processes → the store keeps a `scopeChoice` and generates
+nothing; the chosen process goes to the generation as a `<focus>` block
+(`focusFor`), which the system prompt honours.
+
+**Improvements.** `improvements` in the Graph IR (kind, title, description,
+node ids) → `ReviewReport.improvements` with diagram ids. The prompt forbids
+building them into the graph; `applyImprovement` sends one as an edit
+instruction (preview), `dismissImprovement` marks it. The list survives edits.
 
 **Self-correction.** `correct.ts`: `normViolations` = errors with a clause of
 the standard (rule checks + simulation deadlock / double run, 14.1). With the

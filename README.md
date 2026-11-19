@@ -59,6 +59,22 @@ objects, annotations, sub-process contents) are reported before you accept.
 Without a key both fall back to the offline rule-based parser, and the chat
 says so.
 
+**Several processes in one text.** Before generating from a longer text
+(500+ characters) a short, cheap AI call checks whether it describes one
+process or several separate ones (each with its own trigger and outcome, e.g.
+invoice processing, payment run, dunning). If several, nothing is generated:
+the panel lists them and the user generates one at a time (the chosen one is
+sent as `<focus>`, hand-overs to the others become events) or deliberately all
+in one diagram.
+
+**Improvement suggestions.** The AI also returns up to six suggestions —
+*Optimierung* (waiting, media breaks, hand-offs, avoidable rework),
+*Automatisierung* (a manual step a named system could do) and *Best Practice*
+(modelling and control weaknesses, after B. Silver *BPMN Method and Style* and
+Freund & Rücker *Praxishandbuch BPMN*). They are never built into the diagram:
+under *Überprüfung* each is shown at its place, and the owner applies it (as an
+AI edit with preview) or dismisses it.
+
 **Process library.** Every process is saved automatically (1.5 s after a
 change) in the browser's IndexedDB: diagram, AI input text and open AI
 questions. *📁 Bibliothek* lists, searches, opens, renames, duplicates and
@@ -238,6 +254,15 @@ that hand over to each other's lane). What is guaranteed instead:
   achieves zero (467/467). `test/layout-stress.test.ts` checks this on every
   run.
 - Track order between columns is solved exactly (dynamic programming).
+- Independent flows (several triggers that never meet) are laid out side by
+  side instead of interleaved; the lane order with the fewest lane jumps is
+  tried and kept when it has fewer crossings; crossings left after layout are
+  re-routed one by one with a high crossing penalty (a longer line is accepted,
+  a new defect is not).
+- What still crosses can be replaced on request (*Kreuzungen → Links*) by a
+  pair of link events (ISO/IEC 19510, 10.5.4) — only where the crossings
+  really drop, as a preview. Crossings with message flows stay (a link cannot
+  leave the pool).
 - Remaining crossings are shown in the app's *Diagramm-Prüfung* — the user
   always sees the state of the drawing; manual edits that create overlaps or
   flows through shapes are flagged with the fix (*Kanten aufräumen*).

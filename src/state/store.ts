@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type Modeler from "bpmn-js/lib/Modeler";
 import { BpmnModel, ValidationIssue, layoutIssues, simulationIssues, validate } from "@core/index";
+import { linkCrossings } from "@core/layout";
 import { ai } from "@core/index";
 import { ProcessDescription, describeProcess, descriptionToMarkdown } from "@core/describe";
 import {
@@ -70,7 +71,7 @@ interface EditorState {
   aiProgress?: string;
   busy: boolean;
   /** an AI suggestion shown as a preview, awaiting accept/reject. */
-  pending?: { prevXml: string; description: string; marked?: string[]; prevReview?: ai.ReviewReport; newDoc?: boolean; prevDoc?: CurrentDoc; prevMeta?: ProcessMeta };
+  pending?: { prevXml: string; description: string; marked?: string[]; tag?: string; prevReview?: ai.ReviewReport; newDoc?: boolean; prevDoc?: CurrentDoc; prevMeta?: ProcessMeta };
 
   /** AI input field (saved with the process) */
   inputText: string;
@@ -136,6 +137,8 @@ interface EditorState {
 
   cleanupAll: () => Promise<void>;
   cleanupFlowsOnly: () => Promise<void>;
+  /** remaining crossings → link event pairs (shown as preview) */
+  crossingsToLinks: () => Promise<void>;
 
   /** process description derived from the current diagram. */
   description?: ProcessDescription;
@@ -504,6 +507,37 @@ export const useEditor = create<EditorState>((set, get) => ({
     try {
       await cleanupFlows(m);
       await get().revalidate();
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  crossingsToLinks: async () => {
+    const m = get().modeler;
+    if (!m || get().pending) return;
+    set({ busy: true });
+    try {
+      const model = await getModelFromModeler(m);
+      const res = linkCrossings(model);
+      if (!res) {
+        get().showToast("Keine Kreuzung zwischen Sequenzflüssen, die sich mit Link-Ereignissen auflösen lässt (Kreuzungen mit Nachrichtenflüssen bleiben).");
+        return;
+      }
+      const prevXml = await getXml(m);
+      const before = new Set(Object.keys(model.nodes));
+      await loadModelIntoModeler(m, res.model);
+      const added = Object.keys(res.model.nodes).filter((id) => !before.has(id));
+      highlight(m, added, "ai-added");
+      await get().revalidate();
+      set({
+        pending: {
+          prevXml,
+          prevReview: get().aiReview,
+          tag: "Vorschau",
+          marked: added,
+          description: `Kreuzungen ${res.before} → ${res.after}: ${res.links.length} Link-Paar(e) (${res.links.join(", ")}) – der Fluss springt vom werfenden zum gleichnamigen fangenden Link-Ereignis.`,
+        },
+      });
     } finally {
       set({ busy: false });
     }
