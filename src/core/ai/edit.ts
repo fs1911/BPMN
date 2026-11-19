@@ -56,6 +56,7 @@ export function modelToGraphIR(model: BpmnModel): GraphIR {
     dataObjects: [],
     assumptions: [],
     ambiguities: [],
+    improvements: [],
   };
 }
 

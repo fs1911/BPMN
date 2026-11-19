@@ -195,6 +195,26 @@ li.locatable:hover, .q-text.locatable:hover, .tag.locatable:hover { color: var(-
 .review-block.findings ul { margin: 0; padding-left: 16px; font-size: 12px; color: var(--warn); }
 .ai-generate .progress, .ai-review .source { margin: 6px 0; font-size: 12px; }
 .review-block.ambiguities b { color: var(--text); }
+.scope-choice { border: 1px solid var(--accent); border-radius: 8px; padding: 8px 10px; margin: 10px 0; background: var(--accent-soft); font-size: 12px; }
+.scope-choice h5 { margin: 0 0 4px; font-size: 12px; }
+.scope-choice .hint { margin: 0 0 6px; line-height: 1.35; }
+.scope-choice ol { margin: 0 0 8px; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; }
+.scope-choice li button { margin-top: 4px; width: auto; }
+.scope-choice .done { color: #1b6b3a; font-size: 11px; }
+.scope-choice .row { display: flex; gap: 6px; flex-wrap: wrap; }
+.scope-choice .row button { width: auto; }
+.review-block.improvements .hint { font-size: 12px; margin: 0 0 6px; color: var(--muted); line-height: 1.35; }
+.review-block.improvements ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.improvement { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; line-height: 1.35; }
+.improvement.dismissed { opacity: 0.5; }
+.improvement.applied { border-color: #1b6b3a; }
+.improvement .row { display: flex; gap: 6px; margin-top: 5px; }
+.improvement .row button { width: auto; font-size: 12px; padding: 3px 8px; }
+.improvement .status { margin-top: 4px; }
+.improvement .kind { font-size: 10px; text-transform: uppercase; padding: 1px 5px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); }
+.improvement .kind.automatisierung { background: #e6f0ff; color: #1d4ed8; border-color: #bcd0fb; }
+.improvement .kind.optimierung { background: #e6f6ec; color: #1b6b3a; border-color: #b9e2c7; }
+.improvement .kind.best-practice { background: #fff4e5; color: #8a5300; border-color: #f3d9a8; }
 
 /* ---- Dark mode for the bpmn-js canvas ---- */
 html[data-theme="dark"] .bjs-canvas,

@@ -146,14 +146,34 @@ interface EditorState {
   exportXml: () => Promise<void>;
   importXml: (xml: string) => Promise<void>;
 
-  /** offline: the rule-based parser instead of the AI (only on request, after the AI failed) */
-  generate: (text: string, opts?: { offline?: boolean }) => Promise<void>;
+  /**
+   * offline: the rule-based parser instead of the AI (only on request, after the AI failed).
+   * focus: only this one of the processes the scope check found; whole: all in one diagram (no check).
+   */
+  generate: (text: string, opts?: { offline?: boolean; focus?: ai.ScopeProcess; whole?: boolean }) => Promise<void>;
+  /** the text describes several processes: the owner chooses before anything is generated */
+  scopeChoice?: ScopeChoice;
+  dismissScopeChoice: () => void;
+  /** apply an AI improvement suggestion (as an AI edit with preview) or dismiss it */
+  applyImprovement: (index: number) => Promise<void>;
+  dismissImprovement: (index: number) => void;
   /** the AI failed on the last generation: the panel offers the rule-based parser */
   offlineOffer?: string;
   instruct: (text: string, opts?: InstructOptions) => Promise<void>;
   /** answers to the AI's open questions → one AI edit */
   answerQuestions: (answers: ai.AnsweredQuestion[]) => Promise<void>;
 }
+
+export interface ScopeChoice {
+  text: string;
+  processes: ai.ScopeProcess[];
+  relation: string;
+  /** titles already generated from this choice */
+  done: string[];
+}
+
+/** Shorter texts are checked only by the generation itself (several processes rarely fit in a few lines). */
+export const SCOPE_CHECK_MIN_CHARS = 500;
 
 export const useEditor = create<EditorState>((set, get) => ({
   modeler: null,
@@ -583,9 +603,39 @@ export const useEditor = create<EditorState>((set, get) => ({
       return;
     }
     const images = get().inputImages;
+    // Several processes in one text (own trigger, own outcome each): ask before generating.
+    if (!opts.offline && !opts.focus && !opts.whole && text.trim().length >= SCOPE_CHECK_MIN_CHARS) {
+      set({ aiBusy: true, aiProgress: "KI prüft, ob der Text einen oder mehrere Prozesse beschreibt…", scopeChoice: undefined });
+      let scope: ai.ScopeResult | undefined;
+      try {
+        scope = await ai.checkScopeViaLlm(text);
+      } catch {
+        // the generation below reports a missing AI properly
+      }
+      set({ aiBusy: false, aiProgress: undefined });
+      if (scope && scope.processes.length > 1) {
+        set({
+          scopeChoice: { text, processes: scope.processes, relation: scope.relation, done: [] },
+          aiMessages: [
+            ...get().aiMessages,
+            {
+              role: "assistant",
+              text:
+                `❓ Der Text beschreibt ${scope.processes.length} eigenständige Prozesse (je eigener Auslöser und eigenes Ergebnis):\n` +
+                scope.processes.map((p, i) => `${i + 1}. ${p.title} – Auslöser: ${p.trigger}`).join("\n") +
+                (scope.relation ? `\n${scope.relation}` : "") +
+                "\nEmpfehlung: je Prozess ein eigenes Diagramm (übersichtlicher, keine Kreuzungen zwischen fremden Abläufen). Bitte oben auswählen.",
+            },
+          ],
+        });
+        return;
+      }
+    }
+    if (opts.focus) set({ scopeChoice: get().scopeChoice && { ...get().scopeChoice!, done: [...new Set([...get().scopeChoice!.done, opts.focus.title])] } });
+    else if (opts.whole) set({ scopeChoice: undefined });
     const imageNote = images.length ? `📎 ${images.length} Bild(er): ${images.map((i) => i.name).join(", ")}` : "";
     const shownText = text.length > 400 ? `${text.slice(0, 300).trimEnd()} … (${text.length.toLocaleString("de-CH")} Zeichen)` : text;
-    const shown = [shownText, imageNote].filter(Boolean).join("\n");
+    const shown = [opts.focus ? `▶ Nur Prozess „${opts.focus.title}“ aus diesem Text:` : "", shownText, imageNote].filter(Boolean).join("\n");
     set({ aiBusy: true, aiProgress: "KI-Dienst wird kontaktiert…", aiMessages: [...get().aiMessages, { role: "user", text: shown }] });
     try {
       await get().saveNow(); // the open process is saved before a new one replaces it on screen
@@ -597,8 +647,10 @@ export const useEditor = create<EditorState>((set, get) => ({
           result = ai.generateFromTextSync(text);
         } else {
           let correcting = false;
+          const choice = get().scopeChoice;
           result = await ai.generateViaLlm(text, {
             images,
+            ...(opts.focus ? { focus: ai.focusFor(opts.focus, choice?.processes ?? [opts.focus]) } : {}),
             selfCorrect: get().selfCorrect,
             onProgress: (p) => {
               if (p.phase === "correcting") correcting = true;
@@ -642,6 +694,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       await get().revalidate();
       const findings = review.findings?.length ? `\n⚠ ${review.findings.length} Qualitätshinweis(e) – siehe Überprüfung.` : "";
       const questions = review.ambiguities.length ? `\n❓ ${review.ambiguities.length} Rückfrage(n) der KI – unter „Überprüfung“ beantworten.` : "";
+      const ideas = review.improvements?.length ? `\n💡 ${review.improvements.length} Verbesserungsvorschlag/-vorschläge – unter „Überprüfung“, nichts davon ist eingebaut.` : "";
       set({
         aiReview: review,
         aiBusy: false,
@@ -651,7 +704,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           ...get().aiMessages,
           {
             role: "assistant",
-            text: `${review.source === "llm" ? "KI-Modell" : "⚠ Regel-Parser (ohne KI)"}: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.decisions.length} Entscheidung(en), ${review.loops.length} Schleife(n). Konfidenz ${(review.confidence * 100).toFixed(0)} %.${findings}${questions}\nVorschau – bitte übernehmen oder verwerfen.`,
+            text: `${review.source === "llm" ? "KI-Modell" : "⚠ Regel-Parser (ohne KI)"}: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.decisions.length} Entscheidung(en), ${review.loops.length} Schleife(n). Konfidenz ${(review.confidence * 100).toFixed(0)} %.${findings}${questions}${ideas}\nVorschau – bitte übernehmen oder verwerfen.`,
           },
         ],
       });
@@ -664,6 +717,33 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
+  dismissScopeChoice: () => set({ scopeChoice: undefined }),
+
+  applyImprovement: async (index) => {
+    const review = get().aiReview;
+    const imp = review?.improvements?.[index];
+    if (!review || !imp || imp.status) return;
+    const m = get().modeler;
+    const names = m && imp.elementIds?.length ? imp.elementIds.map((id) => m.get<any>("elementRegistry").get(id)?.businessObject?.name).filter(Boolean) : [];
+    const instruction =
+      `Setze diesen Verbesserungsvorschlag im Prozess um: ${imp.title}. ${imp.description}` +
+      (names.length ? ` Betroffene Elemente: ${names.map((n: string) => `„${n}“`).join(", ")}.` : "") +
+      " Ändere nur, was dafür nötig ist.";
+    const before = get().pending;
+    await get().instruct(instruction, { shown: `💡 Vorschlag umsetzen: ${imp.title}`, llmOnly: true });
+    // shown as a preview: marked as applied (discarding the preview restores the earlier review)
+    const after = get().aiReview;
+    if (get().pending && get().pending !== before && after?.improvements) {
+      set({ aiReview: { ...after, improvements: after.improvements.map((x, i) => (i === index ? { ...x, status: "applied" as const } : x)) } });
+    }
+  },
+
+  dismissImprovement: (index) => {
+    const review = get().aiReview;
+    if (!review?.improvements?.[index]) return;
+    set({ aiReview: { ...review, improvements: review.improvements.map((x, i) => (i === index ? { ...x, status: "dismissed" as const } : x)) } });
+  },
+
   instruct: async (text, opts = {}) => {
     const m = get().modeler;
     if (!m) return;
@@ -672,6 +752,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     const withOpenQuestions = (review: ai.ReviewReport): ai.ReviewReport => ({
       ...review,
       ambiguities: ai.mergeAmbiguities(prevReview?.ambiguities ?? [], opts.answered ?? [], review.ambiguities),
+      // suggestions belong to the process, not to one edit: they stay until applied or dismissed
+      ...(prevReview?.improvements?.length ? { improvements: prevReview.improvements } : {}),
     });
     set({ aiBusy: true, aiProgress: "KI-Dienst wird kontaktiert…", aiMessages: [...get().aiMessages, { role: "user", text: opts.shown ?? text }] });
     const say = (msg: string) => set({ aiMessages: [...get().aiMessages, { role: "assistant", text: msg }] });

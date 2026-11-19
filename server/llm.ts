@@ -6,7 +6,10 @@ import {
   MAX_IMAGES,
   MAX_IMAGE_CHARS,
   MAX_INSTRUCTION_CHARS,
+  MAX_FOCUS_CHARS,
   MAX_TEXT_CHARS,
+  SCOPE_PROMPT,
+  SCOPE_SCHEMA,
 } from "../src/core/ai/graph-schema.ts";
 
 /**
@@ -15,7 +18,9 @@ import {
  *
  *   POST /api/generate  { text, images? }                       → new process
  *                       images: [{ mediaType, data (base64) }], shrunk in the browser
+ *   POST /api/generate  { text, focus }                         → only the chosen one of several processes
  *   POST /api/generate  { mode: "edit", graph, instruction }    → edited process
+ *   POST /api/generate  { mode: "scope", text }                 → { processes, relation }: one or several processes?
  *
  * The server validates the input, fixes model, prompt and output schema (so
  * the API key cannot be used as a general-purpose proxy) and passes Claude's
@@ -55,7 +60,7 @@ export async function handleGenerate(req: Request, env: LlmServerEnv): Promise<R
   if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) {
     return json(413, "bad_input", "Anfrage zu gross – bitte weniger oder kleinere Bilder.");
   }
-  let body: { text?: unknown; mode?: unknown; instruction?: unknown; graph?: unknown; images?: unknown } = {};
+  let body: { text?: unknown; mode?: unknown; instruction?: unknown; graph?: unknown; images?: unknown; focus?: unknown } = {};
   try {
     body = await req.json();
   } catch {
@@ -64,7 +69,20 @@ export async function handleGenerate(req: Request, env: LlmServerEnv): Promise<R
 
   let system: string;
   let content: string | (ImageBlock | { type: "text"; text: string })[];
-  if (body.mode === "edit") {
+  // the scope check is a short, cheap call: small schema, little thinking
+  let schema: object = GRAPH_IR_SCHEMA;
+  let effort: "low" | "medium" = "medium";
+  let maxTokens = 64000;
+  if (body.mode === "scope") {
+    const text = String(body.text ?? "").trim();
+    if (!text) return json(400, "bad_input", "Bitte einen Prozesstext eingeben.");
+    if (text.length > MAX_TEXT_CHARS) return json(400, "bad_input", `Text zu lang (${text.length} Zeichen, maximal ${MAX_TEXT_CHARS}).`);
+    system = SCOPE_PROMPT;
+    content = `<process_description>\n${text}\n</process_description>`;
+    schema = SCOPE_SCHEMA;
+    effort = "low";
+    maxTokens = 8000;
+  } else if (body.mode === "edit") {
     const instruction = String(body.instruction ?? "").trim();
     const graph = JSON.stringify(body.graph ?? null);
     if (!instruction) return json(400, "bad_input", "Bitte eine Änderungsanweisung eingeben.");
@@ -78,8 +96,12 @@ export async function handleGenerate(req: Request, env: LlmServerEnv): Promise<R
     if (typeof images === "string") return json(400, "bad_input", images);
     if (!text && !images.length) return json(400, "bad_input", "Bitte einen Prozesstext eingeben oder ein Bild anhängen.");
     if (text.length > MAX_TEXT_CHARS) return json(400, "bad_input", `Text zu lang (${text.length} Zeichen, maximal ${MAX_TEXT_CHARS}).`);
+    const focus = String(body.focus ?? "").trim();
+    if (focus.length > MAX_FOCUS_CHARS) return json(400, "bad_input", "Prozessauswahl zu lang.");
     system = GRAPH_SYSTEM_PROMPT;
-    const description = `<process_description>\n${text || "(Kein Text – der Prozess steht in den Bildern.)"}\n</process_description>`;
+    const description =
+      `<process_description>\n${text || "(Kein Text – der Prozess steht in den Bildern.)"}\n</process_description>` +
+      (focus ? `\n<focus>\n${focus}\n</focus>` : "");
     content = images.length ? [...images, { type: "text", text: description }] : description;
   }
 
@@ -91,12 +113,12 @@ export async function handleGenerate(req: Request, env: LlmServerEnv): Promise<R
     const upstream = await client.beta.messages
       .create({
         model: MODEL,
-        max_tokens: 64000,
+        max_tokens: maxTokens,
         stream: true,
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         thinking: { type: "adaptive" },
-        output_config: { effort: "medium", format: { type: "json_schema", schema: GRAPH_IR_SCHEMA } },
+        output_config: { effort, format: { type: "json_schema", schema: schema as typeof GRAPH_IR_SCHEMA } },
         system,
         messages: [{ role: "user", content }],
       })

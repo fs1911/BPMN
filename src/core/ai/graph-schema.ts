@@ -82,6 +82,19 @@ export interface GraphIR {
   assumptions: string[];
   /** elements: ids of the nodes a question is about ([] if it concerns the whole process) */
   ambiguities: { about: string; question: string; options: string[]; elements: string[] }[];
+  /** suggestions to improve or automate the process — never built into the graph (optional for older data) */
+  improvements?: GraphImprovement[];
+}
+
+export const IMPROVEMENT_KINDS = ["optimierung", "automatisierung", "best-practice"] as const;
+export type ImprovementKind = (typeof IMPROVEMENT_KINDS)[number];
+export interface GraphImprovement {
+  kind: ImprovementKind;
+  title: string;
+  /** what to change and why (benefit) */
+  description: string;
+  /** ids of the nodes concerned ([] = whole process) */
+  elements: string[];
 }
 
 /** JSON schema for structured outputs. Every field is required so the model
@@ -89,7 +102,7 @@ export interface GraphIR {
 export const GRAPH_IR_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["title", "purpose", "scope", "owner", "lang", "lanes", "nodes", "flows", "pools", "messageFlows", "systems", "dataObjects", "assumptions", "ambiguities"],
+  required: ["title", "purpose", "scope", "owner", "lang", "lanes", "nodes", "flows", "pools", "messageFlows", "systems", "dataObjects", "assumptions", "ambiguities", "improvements"],
   properties: {
     title: { type: "string" },
     purpose: { type: "string" },
@@ -173,6 +186,20 @@ export const GRAPH_IR_SCHEMA = {
         },
       },
     },
+    improvements: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "title", "description", "elements"],
+        properties: {
+          kind: { type: "string", enum: [...IMPROVEMENT_KINDS] },
+          title: { type: "string" },
+          description: { type: "string" },
+          elements: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
   },
 } as const;
 
@@ -219,6 +246,26 @@ External parties
 - Flows inside the process are sequence flows ("flows"); flows to or from a pool are only ever message flows.
 - If the text names no external party, return empty "pools" and "messageFlows".
 
+Readable layout (the diagram is laid out automatically from your graph; crossing lines make it hard to read)
+- Keep the main path (happy path) one straight chain from start to end; exceptions and rejections branch off it and end early or rejoin.
+- List "lanes" in the order the work moves through them (the role that starts first on top), so most flows go down or stay in their lane, and roles that hand over work to each other are neighbours.
+- Rework loops go back only to the nearest step that is really redone (short loops, see Structure).
+- Do not route several unrelated paths through one gateway; one gateway per decision.
+
+Best practice (B. Silver, "BPMN Method and Style"; Freund & Rücker, "Praxishandbuch BPMN")
+- Start and end events are named with a state ("Rechnung eingegangen", "Rechnung bezahlt"); one end event per distinct outcome.
+- Gateways split with a question and labelled outcomes; joins are unnamed. No implicit splits or merges through activities.
+- Activities are "object + verb"; one activity = one unit of work by one role.
+- Lanes are roles, never systems that do human work; external parties are pools connected only by message flows.
+
+Improvements ("improvements") — suggestions only, never built into the graph
+- The graph shows the process as described. Do NOT change it to apply your suggestions; the owner decides each one.
+- Suggest at most 6, only where the text gives a concrete reason, each with "elements" = ids of the nodes concerned:
+  - "optimierung": remove waiting, duplicate checks, media breaks (print/scan/re-type), unnecessary hand-offs between lanes, avoidable rework loops, steps that can run in parallel.
+  - "automatisierung": a manual step that a named system could do (e.g. automatic invoice capture in DocuWare, automatic posting or reminders in Abacus, rule-based approval below a threshold) → would become a serviceTask; name the system and the benefit.
+  - "best-practice": a modelling or control weakness (missing outcome for a decision, missing deadline/escalation for an external reply, missing four-eyes principle where money is released).
+- "description": one or two sentences: what to change and the benefit. "title": short imperative ("Rechnungseingang automatisieren"). [] if there is nothing worth suggesting.
+
 Process profile: "purpose" (Zweck), "scope" (Geltungsbereich: where/for whom it applies) and "owner" (Prozesseigner / Zuständigkeit: the role or unit responsible for the process) — one short sentence each, taken from the text if it states them; "" if it does not (never invent them). "title" names the process ("Kreditoren verarbeiten"), never "Start" or a heading word.
 
 "lang" is the language of the input ("de" or "en"); all names, conditions, assumptions and questions are in that language.`;
@@ -250,6 +297,8 @@ A section "Ablaufzeichnung … aus dem Word-Dokument" is a flowchart read from s
 
 The text may be Markdown converted from a Word or PDF document (procedure, work instruction, process description). Model only the process flow it describes. Purpose, scope, definitions, referenced documents, change history, distribution lists and similar sections are context, not steps. Responsibility tables (who does what) tell you the lanes. Text in table rows separated by "|" belongs together.
 
+If a <focus> block is present, the text describes several processes and the owner chose one of them: model ONLY the process named in <focus>. Where it hands over to or is triggered by one of the other processes, use a message or signal event (or a pool for an external party) named after that other process instead of modelling its steps, and note it in "assumptions".
+
 ${GRAPH_RULES}
 
 Ids: short and unique ("n1", "n2", …; lanes "l1", …).`;
@@ -262,10 +311,51 @@ Editing
 - Never renumber or reuse ids. New elements get new ids that do not occur in the current process ("new1", "new2", …).
 - Keep the process valid after the change: reconnect flows around removed elements, give new decisions all their branches, keep every path ending in an end event.
 - "source": keep the existing value for existing elements; for new elements quote the relevant words of the instruction.
-- "assumptions" and "ambiguities" describe only this change. If the instruction cannot be applied or is unclear, return the process unchanged and explain why in "ambiguities".
+- "assumptions", "ambiguities" and "improvements" describe only this change ("improvements" usually []). If the instruction cannot be applied or is unclear, return the process unchanged and explain why in "ambiguities".
 - Keep "title" and "lang" unless the instruction asks otherwise.
 - The instruction may answer earlier open questions. Treat the owner's answers as facts: model them, and do not ask about these points again.
 
 Apply the same modelling rules as when the process was created:
 
 ${GRAPH_RULES}`;
+
+/** Upper limit for the chosen process in a scope choice. */
+export const MAX_FOCUS_CHARS = 600;
+
+/** Answer of the scope check: which separate processes the text describes. */
+export interface ScopeProcess {
+  title: string;
+  /** what starts it */
+  trigger: string;
+  summary: string;
+}
+export interface ScopeResult {
+  processes: ScopeProcess[];
+  /** how the processes relate (handover, independent, …), one sentence */
+  relation: string;
+}
+
+export const SCOPE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["processes", "relation"],
+  properties: {
+    processes: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "trigger", "summary"],
+        properties: { title: { type: "string" }, trigger: { type: "string" }, summary: { type: "string" } },
+      },
+    },
+    relation: { type: "string" },
+  },
+} as const;
+
+export const SCOPE_PROMPT = `You check a business process description (inside <process_description>) BEFORE it is turned into a BPMN diagram: does it describe one process or several separate processes?
+
+Several processes means: separate flows that each have their own trigger and their own outcome and could be owned, run and improved independently (e.g. "Rechnung erfassen und visieren", "Zahlungslauf", "Mahnwesen" in one finance procedure). A trigger is an event, a date/period or a request.
+One process means: one flow, even with branches, exceptions, loops, parallel work, several start triggers that lead into the same flow, or sub-steps another role does.
+
+Return every separate process in the order of the text: "title" (object + verb, 2–5 words, in the language of the text), "trigger" (what starts it, a few words), "summary" (one sentence: what happens until it ends). If it is one process, return exactly one entry. "relation": one sentence on how the processes are connected (handover, run independently, one triggers the other), "" for one process.`;

@@ -13,7 +13,7 @@ import {
 } from "../model";
 import { assessModel } from "./quality";
 import { MappingResult, removeEmptyLanes } from "./map";
-import { Ambiguity, ReviewReport } from "./types";
+import { Ambiguity, Improvement, ReviewReport } from "./types";
 import {
   GRAPH_EVENT_KINDS,
   GRAPH_NODE_TYPES,
@@ -22,6 +22,8 @@ import {
   GraphIR,
   GraphNodeIR,
   GraphNodeType,
+  IMPROVEMENT_KINDS,
+  ImprovementKind,
 } from "./graph-schema";
 
 export * from "./graph-schema";
@@ -228,6 +230,15 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
       ambiguities: (Array.isArray(r.ambiguities) ? r.ambiguities : [])
         .map((a: any) => ({ about: str(a?.about), question: str(a?.question), options: strArr(a?.options), elements: strArr(a?.elements).map(xmlId).filter((id) => nodeIds.has(id)) }))
         .filter((a) => a.question),
+      improvements: (Array.isArray(r.improvements) ? r.improvements : [])
+        .map((x: any) => ({
+          kind: (IMPROVEMENT_KINDS as readonly string[]).includes(str(x?.kind)) ? (str(x?.kind) as ImprovementKind) : "optimierung",
+          title: str(x?.title),
+          description: str(x?.description),
+          elements: strArr(x?.elements).map(xmlId).filter((id) => nodeIds.has(id)),
+        }))
+        .filter((x) => x.title)
+        .slice(0, 8),
     },
     repairs,
   };
@@ -398,6 +409,16 @@ export function mapGraphToModel(irIn: GraphIR, opts: MapGraphOptions = {}): Mapp
       options: a.options.length ? a.options : undefined,
       ...(a.elements?.length ? { elementIds: a.elements.map((id) => idMap[id]).filter(Boolean) } : {}),
     })),
+    ...(ir.improvements?.length
+      ? {
+          improvements: ir.improvements.map<Improvement>((x) => ({
+            kind: x.kind,
+            title: x.title,
+            description: x.description,
+            ...(x.elements.length ? { elementIds: x.elements.map((id) => idMap[id]).filter(Boolean) } : {}),
+          })),
+        }
+      : {}),
     provenance,
     confidence: assessment.confidence,
     findings: [...(opts.repairs ?? []), ...assessment.findings],

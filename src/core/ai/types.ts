@@ -55,6 +55,16 @@ export interface Ambiguity {
   elementIds?: string[];
 }
 
+export interface Improvement {
+  kind: "optimierung" | "automatisierung" | "best-practice";
+  title: string;
+  description: string;
+  /** diagram element ids concerned */
+  elementIds?: string[];
+  /** the owner applied it (as an AI edit) or dismissed it */
+  status?: "applied" | "dismissed";
+}
+
 export interface ProcessIR {
   title?: string;
   /** detected input language; drives localization of synthesized labels. */
@@ -80,6 +90,8 @@ export interface ReviewReport {
   checks: string[];
   assumptions: string[];
   ambiguities: Ambiguity[];
+  /** AI suggestions to improve or automate the process (not applied; the owner decides each) */
+  improvements?: Improvement[];
   /** element id -> source text that produced it. */
   provenance: Record<string, string>;
   confidence: number; // 0..1

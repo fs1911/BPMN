@@ -195,6 +195,7 @@ export function AiPanel() {
             </button>
           )}
           {progress && <p className="muted progress">{progress}</p>}
+          <ScopeChoiceBox busy={busy} />
 
           <h4>Per Anweisung aktualisieren</h4>
           <div className="row">
@@ -241,6 +242,7 @@ export function AiPanel() {
                 <b>{(review.confidence * 100).toFixed(0)}%</b>
               </div>
               {review.ambiguities.length > 0 && <OpenQuestions questions={review.ambiguities} busy={busy} progress={progress} />}
+              {review.improvements && review.improvements.length > 0 && <Improvements items={review.improvements} busy={busy} />}
               {review.findings && review.findings.length > 0 && (
                 <div className="review-block findings">
                   <h5>Qualitätshinweise</h5>
@@ -277,6 +279,89 @@ export function AiPanel() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The scope check found several separate processes in the text: generate one
+ * of them (the others stay listed for later) or all in one diagram.
+ */
+function ScopeChoiceBox({ busy }: { busy: boolean }) {
+  const choice = useEditor((s) => s.scopeChoice);
+  if (!choice) return null;
+  const gen = useEditor.getState().generate;
+  return (
+    <div className="scope-choice">
+      <h5>Mehrere Prozesse im Text erkannt ({choice.processes.length})</h5>
+      <p className="hint">
+        Jeder hat einen eigenen Auslöser und ein eigenes Ergebnis. Empfehlung: je Prozess ein eigenes Diagramm – kleiner, ohne Kreuzungen zwischen fremden Abläufen, einzeln
+        freigebbar. Übergaben zwischen den Prozessen erscheinen als Nachrichten-Ereignisse.
+      </p>
+      {choice.relation && <p className="hint muted">{choice.relation}</p>}
+      <ol>
+        {choice.processes.map((p) => {
+          const done = choice.done.includes(p.title);
+          return (
+            <li key={p.title}>
+              <div className="scope-title">
+                <b>{p.title}</b> {done && <span className="done">✓ erzeugt</span>}
+              </div>
+              <div className="muted">Auslöser: {p.trigger}</div>
+              {p.summary && <div className="muted">{p.summary}</div>}
+              <button disabled={busy} onClick={() => void gen(choice.text, { focus: p })}>
+                {done ? "Nochmals erzeugen" : "Diesen Prozess erzeugen"}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="row">
+        <button className="secondary" disabled={busy} onClick={() => void gen(choice.text, { whole: true })} title="Alles in ein Diagramm – grösser, eher Kreuzungen">
+          Trotzdem alles in ein Diagramm
+        </button>
+        <button className="secondary" disabled={busy} onClick={() => useEditor.getState().dismissScopeChoice()}>
+          Schliessen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const IMPROVEMENT_LABEL: Record<ai.Improvement["kind"], string> = {
+  optimierung: "Optimierung",
+  automatisierung: "Automatisierung",
+  "best-practice": "Best Practice",
+};
+
+/**
+ * The AI's suggestions to improve or automate the process. None is built into
+ * the diagram; each is applied (as an AI edit with preview) or dismissed by the owner.
+ */
+function Improvements({ items, busy }: { items: ai.Improvement[]; busy: boolean }) {
+  const open = items.filter((x) => !x.status).length;
+  return (
+    <div className="review-block improvements">
+      <h5>Verbesserungsvorschläge ({open} offen)</h5>
+      <p className="hint">Nicht eingebaut – das Diagramm zeigt den Prozess wie beschrieben. „Umsetzen“ ändert das Diagramm als Vorschau.</p>
+      <ul>
+        {items.map((x, i) => (
+          <li key={i} className={`improvement ${x.kind} ${x.status ?? ""}`}>
+            <div className="locatable" onClick={() => locate(`${x.title} ${x.description}`, x.elementIds)} title="Im Diagramm zeigen">
+              <span className={`kind ${x.kind}`}>{IMPROVEMENT_LABEL[x.kind]}</span> <b>{x.title}</b>
+              <div>{x.description}</div>
+            </div>
+            {x.status ? (
+              <div className="muted status">{x.status === "applied" ? "✓ umgesetzt (Vorschau)" : "verworfen"}</div>
+            ) : (
+              <div className="row">
+                <button disabled={busy} onClick={() => void useEditor.getState().applyImprovement(i)}>Umsetzen</button>
+                <button className="secondary" disabled={busy} onClick={() => useEditor.getState().dismissImprovement(i)}>Verwerfen</button>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

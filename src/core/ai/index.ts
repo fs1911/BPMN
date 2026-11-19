@@ -18,13 +18,13 @@ export {
   sanitizeGraphIR,
 } from "./graph";
 export type { GraphIR, GraphNodeIR, GraphFlowIR } from "./graph";
-export { editViaLlm, generateViaLlm, LlmUnavailableError } from "./remote";
+export { checkScopeViaLlm, editViaLlm, focusFor, generateViaLlm, LlmUnavailableError } from "./remote";
 export type { GenerateOptions } from "./remote";
 export { buildCorrectionInstruction, normViolations } from "./correct";
 export type { EditResult, LlmCallOptions, LlmProgress, GenerationResultGraph } from "./remote";
 export { applyEditedGraph, diffGraphs, modelToGraphIR } from "./edit";
 export { MAX_IMAGES, MAX_IMAGE_CHARS, MAX_INSTRUCTION_CHARS, MAX_TEXT_CHARS } from "./graph-schema";
-export type { ProcessImage } from "./graph-schema";
+export type { ProcessImage, ScopeProcess, ScopeResult } from "./graph-schema";
 export { buildAnswerInstruction, mergeAmbiguities } from "./answers";
 export type { AnsweredQuestion } from "./answers";
 export type { GraphDiff } from "./edit";

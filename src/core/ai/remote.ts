@@ -1,5 +1,5 @@
 import type { BpmnModel } from "../model";
-import { GraphIR, ProcessImage, mapGraphToModel, sanitizeGraphIR } from "./graph";
+import { GraphIR, MAX_FOCUS_CHARS, ProcessImage, ScopeProcess, ScopeResult, mapGraphToModel, sanitizeGraphIR } from "./graph";
 import { GraphDiff, applyEditedGraph, diffGraphs, modelToGraphIR } from "./edit";
 import type { ReviewReport } from "./types";
 import { readClaudeStream } from "./stream";
@@ -44,17 +44,39 @@ export interface GenerateOptions extends LlmCallOptions {
   selfCorrect?: boolean;
   /** photos / page images of the process, read by the AI together with the text */
   images?: ProcessImage[];
+  /** the text describes several processes: model only this one (title, trigger, summary) */
+  focus?: string;
 }
 
 /** Text and/or images → new diagram. */
 export async function generateViaLlm(text: string, opts: GenerateOptions = {}): Promise<GenerationResultGraph> {
   const images = (opts.images ?? []).map((i) => ({ mediaType: i.mediaType, data: i.data }));
-  const graph = await callEndpoint(images.length ? { text, images } : { text }, opts);
+  const graph = await callEndpoint({ text, ...(images.length ? { images } : {}), ...(opts.focus ? { focus: opts.focus } : {}) }, opts);
   const { ir, repairs } = sanitizeGraphIR(graph);
   if (!ir.nodes.length) throw new Error("Die KI hat keinen Prozess erkannt.");
   const { model, review } = mapGraphToModel(ir, { sourceText: text, repairs });
   const first = { model, ir, review };
   return opts.selfCorrect ? selfCorrect(first, opts) : first;
+}
+
+/**
+ * Short check before generating: does the text describe one process or
+ * several separate ones (own trigger, own outcome)? Several → the owner
+ * chooses instead of getting one tangled diagram.
+ */
+export async function checkScopeViaLlm(text: string, opts: LlmCallOptions = {}): Promise<ScopeResult> {
+  const raw = (await callEndpoint({ mode: "scope", text }, opts)) as Partial<ScopeResult> | null;
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const processes = (Array.isArray(raw?.processes) ? raw!.processes : [])
+    .map((p: Partial<ScopeProcess>) => ({ title: str(p?.title), trigger: str(p?.trigger), summary: str(p?.summary) }))
+    .filter((p) => p.title);
+  return { processes, relation: str(raw?.relation) };
+}
+
+/** The focus block for generating one of several processes. */
+export function focusFor(p: ScopeProcess, all: ScopeProcess[]): string {
+  const others = all.filter((o) => o !== p).map((o) => o.title);
+  return `Prozess: ${p.title}\nAuslöser: ${p.trigger}\nUmfang: ${p.summary}${others.length ? `\nAndere Prozesse im Text (nicht modellieren): ${others.join("; ")}` : ""}`.slice(0, MAX_FOCUS_CHARS);
 }
 
 /**
