@@ -24,6 +24,12 @@ Das System erstellt eine Bestellung.
 Der Prozess endet, wenn die Bestellung an den Lieferanten gesendet wurde.`,
 );
 await page.getByText("BPMN-Entwurf generieren").click();
+// No AI endpoint here: nothing is generated silently, the rule-based parser is offered.
+await page.waitForSelector(".offline-offer");
+const failMsg = await page.getByText("KI nicht verfügbar – es wurde nichts erzeugt").count();
+console.log("AI failure reported, nothing generated:", failMsg > 0, (await page.locator(".preview-bar").count()) === 0);
+if (!failMsg || (await page.locator(".preview-bar").count())) throw new Error("AI failure not reported or diagram generated silently");
+await page.locator(".offline-offer").click();
 await page.waitForTimeout(1200);
 const genShapes = await page.locator(".djs-element.djs-shape").count();
 const genConns = await page.locator(".djs-element.djs-connection").count();

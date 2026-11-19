@@ -140,6 +140,18 @@ HEIC photos cannot be decoded by browsers; the app says how to send JPG.
 Limit: 30 000 characters of text. Visio is not supported yet; old `.doc`
 files must be saved as `.docx`.
 
+**Flowcharts drawn in Word.** Shapes and arrows drawn in Word carry the flow
+in the arrows, which plain text extraction loses (the boxes' words come out
+in no order, "Ja"/"Nein" without their arrow). `src/core/convert/docx-drawing.ts`
+reads the drawing itself: shapes (decision diamonds, start/end), arrows glued
+to them — or loose arrows matched by position — and the short texts next to
+an arrow as its label. The AI gets every shape and arrow as a list and is told
+to follow it exactly.
+
+**No silent fallback.** If the AI is not reachable (login expired, no key,
+service error), nothing is generated: the chat says why, and a button offers
+the rule-based parser explicitly (it understands only simple step lists).
+
 - **Cloudflare Workers (primary host):** [`worker/index.ts`](worker/index.ts)
   serves the built app as static assets, with the access gate
   ([`server/access.ts`](server/access.ts)) in front of everything and the AI

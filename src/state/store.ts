@@ -137,7 +137,10 @@ interface EditorState {
   exportXml: () => Promise<void>;
   importXml: (xml: string) => Promise<void>;
 
-  generate: (text: string) => Promise<void>;
+  /** offline: the rule-based parser instead of the AI (only on request, after the AI failed) */
+  generate: (text: string, opts?: { offline?: boolean }) => Promise<void>;
+  /** the AI failed on the last generation: the panel offers the rule-based parser */
+  offlineOffer?: string;
   instruct: (text: string, opts?: InstructOptions) => Promise<void>;
   /** answers to the AI's open questions → one AI edit */
   answerQuestions: (answers: ai.AnsweredQuestion[]) => Promise<void>;
@@ -523,9 +526,10 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ pending: undefined, ...(s.pending.newDoc || s.pending.prevReview ? { aiReview: s.pending.prevReview } : {}), aiMessages: [...get().aiMessages, { role: "assistant", text: "↩ Vorschlag verworfen, vorheriges Diagramm wiederhergestellt." }] });
   },
 
-  generate: async (text) => {
+  generate: async (text, opts = {}) => {
     const m = get().modeler;
     if (!m) return;
+    set({ offlineOffer: undefined });
     if (text.length > ai.MAX_TEXT_CHARS) {
       // Checked here so an over-long document never silently falls back to the offline parser.
       set({ aiMessages: [...get().aiMessages, { role: "assistant", text: `Text zu lang (${text.length.toLocaleString("de-CH")} Zeichen, maximal ${ai.MAX_TEXT_CHARS.toLocaleString("de-CH")}). Bitte Abschnitte ohne Ablauf (Zweck, Begriffe, Änderungshistorie …) löschen.` }] });
@@ -541,34 +545,46 @@ export const useEditor = create<EditorState>((set, get) => ({
       const prevReview = get().aiReview;
       const prevXml = await getXml(m);
       let result: { model: BpmnModel; review: ai.ReviewReport };
-      let fallbackNote = "";
       try {
-        let correcting = false;
-        result = await ai.generateViaLlm(text, {
-          images,
-          selfCorrect: get().selfCorrect,
-          onProgress: (p) => {
-            if (p.phase === "correcting") correcting = true;
-            set({
-              aiProgress:
-                p.phase === "correcting"
-                  ? `KI korrigiert ${p.violations} Normverstoss/-verstösse…`
-                  : correcting
-                    ? p.phase === "thinking" ? "KI plant die Korrektur…" : `KI schreibt das korrigierte Modell… (${p.chars ?? 0} Zeichen)`
-                    : p.phase === "thinking" ? "KI analysiert den Text…" : `KI schreibt das Modell… (${p.chars ?? 0} Zeichen)`,
-            });
-          },
-        });
+        if (opts.offline) {
+          result = ai.generateFromTextSync(text);
+        } else {
+          let correcting = false;
+          result = await ai.generateViaLlm(text, {
+            images,
+            selfCorrect: get().selfCorrect,
+            onProgress: (p) => {
+              if (p.phase === "correcting") correcting = true;
+              set({
+                aiProgress:
+                  p.phase === "correcting"
+                    ? `KI korrigiert ${p.violations} Normverstoss/-verstösse…`
+                    : correcting
+                      ? p.phase === "thinking" ? "KI plant die Korrektur…" : `KI schreibt das korrigierte Modell… (${p.chars ?? 0} Zeichen)`
+                      : p.phase === "thinking" ? "KI analysiert den Text…" : `KI schreibt das Modell… (${p.chars ?? 0} Zeichen)`,
+              });
+            },
+          });
+        }
       } catch (err) {
-        // Images can only be read by the AI: without it there is nothing to fall back to.
-        if (images.length && !text.trim()) throw new Error(`${(err as Error).message} Bilder kann nur die KI lesen.`);
-        // Offline / no key / API failure: fall back to the rule-based extractor, but say so.
-        result = ai.generateFromTextSync(text);
-        fallbackNote =
-          (err instanceof ai.LlmUnavailableError ? `${(err as Error).message} ` : `KI-Fehler: ${(err as Error).message} `) +
-          "Stattdessen wurde der regelbasierte Offline-Parser verwendet – er versteht nur einfache Schrittlisten zuverlässig" +
-          (images.length ? " und liest keine Bilder" : "") +
-          ".\n";
+        // No silent switch to the rule-based parser: it understands only simple
+        // step lists, and its result looked like a (bad) AI result. Say what
+        // failed and let the user decide.
+        set({
+          aiBusy: false,
+          aiProgress: undefined,
+          offlineOffer: text.trim() ? text : undefined,
+          aiMessages: [
+            ...get().aiMessages,
+            {
+              role: "assistant",
+              text:
+                `⚠ KI nicht verfügbar – es wurde nichts erzeugt.\n${err instanceof ai.LlmUnavailableError ? "" : "KI-Fehler: "}${(err as Error).message}` +
+                (text.trim() ? "\nOhne KI geht es nur mit dem Regel-Parser (versteht nur einfache Schrittlisten, keine Zeichnungen und Bilder) – Knopf unter „BPMN-Entwurf generieren“." : ""),
+            },
+          ],
+        });
+        return;
       }
       const { model, review } = result;
       // A newly generated process goes into its own library entry instead of overwriting the open one.
@@ -587,7 +603,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           ...get().aiMessages,
           {
             role: "assistant",
-            text: `${fallbackNote}${review.source === "llm" ? "KI-Modell" : "Regel-Parser"}: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.decisions.length} Entscheidung(en), ${review.loops.length} Schleife(n). Konfidenz ${(review.confidence * 100).toFixed(0)} %.${findings}${questions}\nVorschau – bitte übernehmen oder verwerfen.`,
+            text: `${review.source === "llm" ? "KI-Modell" : "⚠ Regel-Parser (ohne KI)"}: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.decisions.length} Entscheidung(en), ${review.loops.length} Schleife(n). Konfidenz ${(review.confidence * 100).toFixed(0)} %.${findings}${questions}\nVorschau – bitte übernehmen oder verwerfen.`,
           },
         ],
       });

@@ -197,6 +197,7 @@ Naming
 
 Lanes and types
 - A lane is a role, person or department that performs at least one activity. Recipients who only receive something do not get a lane.
+- IT systems and programs the text names (ERP, accounting, document management, e.g. "Abacus", "DocuWare", "SAP") go into "systems" with their exact name. A step done by a person IN a system stays a userTask in that person's lane; keep the system's name in the step ("Rechnung im Abacus verbuchen"), so the diagram can show which system it uses. Systems are never lanes for human work.
 - Automated steps done by an IT system use serviceTask; put them in a lane named "System" (or the system's name) only if there are such steps. Human work is userTask (or manualTask for physical work like packing/shipping); sending a message to an external party is sendTask.
 - If the text names no actors at all, return an empty "lanes" array and "" as each node's lane.
 
@@ -230,6 +231,8 @@ export const MAX_INSTRUCTION_CHARS = 6_000;
 export const GRAPH_SYSTEM_PROMPT = `You turn business process descriptions (SOPs, emails, meeting notes, free prose) into a BPMN 2.0 process graph. Your output is rendered as a diagram that a process owner reviews, so it must be faithful to the text and readable.
 
 The input may include images: photos of whiteboards or handwritten notes, scanned pages, pages of a document, or an existing flowchart or process diagram in any notation. Read them like text and model the process they show; text and images describe the same process. Arrows, boxes and swimlanes in a drawn diagram are strong hints for flows, steps and lanes, but apply the modelling rules below rather than copying a faulty drawing. For elements taken from an image, "source" quotes the words written there ("" if there are none). Never guess unreadable parts: put them into "ambiguities".
+
+A section "Ablaufzeichnung … aus dem Word-Dokument" is a flowchart read from shapes and arrows in the document: its flow is exact. Model every shape and every arrow as listed — a shape marked "(Entscheidung)" is an exclusiveGateway named with its question, and the arrow labels are its conditions; shapes marked "(Start/Ende)" are the start and end events. Do not add, drop or reorder steps of a drawing. Take the actor of a step from its wording ("Buchhaltung storniert RG" → lane Buchhaltung; "Visumsverantwortlicher …" → lane Visumsverantwortlicher) and write the name without the actor ("RG stornieren"). Several drawings in one document are usually consecutive parts or sub-processes of one process: connect them in the order of the document unless the text says otherwise, and say what you did in "assumptions".
 
 The text may be Markdown converted from a Word or PDF document (procedure, work instruction, process description). Model only the process flow it describes. Purpose, scope, definitions, referenced documents, change history, distribution lists and similar sections are context, not steps. Responsibility tables (who does what) tell you the lanes. Text in table rows separated by "|" belongs together.
 

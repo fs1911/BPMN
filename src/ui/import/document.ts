@@ -1,5 +1,6 @@
 import { htmlToMarkdown } from "@core/convert/html-to-markdown";
 import { pdfToMarkdown, type PdfPage } from "@core/convert/pdf-to-markdown";
+import { drawingsToMarkdown, readFlowDrawings } from "@core/convert/docx-drawing";
 import { MAX_IMAGES } from "@core/ai";
 import { base64ToAttachment, canvasToAttachment, imageFileToAttachment, type ImageAttachment } from "./images";
 
@@ -39,10 +40,11 @@ export async function documentToMarkdown(file: File, slots = MAX_IMAGES): Promis
 }
 
 async function docx(file: File, slots: number): Promise<ImportedDocument> {
-  const mammoth = await import("mammoth");
+  const [mammoth, { default: JSZip }] = await Promise.all([import("mammoth"), import("jszip")]);
+  const buffer = await file.arrayBuffer();
   const embedded: { data: string; type: string }[] = [];
   const { value: html } = await mammoth.convertToHtml(
-    { arrayBuffer: await file.arrayBuffer() },
+    { arrayBuffer: buffer },
     {
       convertImage: mammoth.images.imgElement(async (image) => {
         embedded.push({ data: await image.read("base64"), type: image.contentType });
@@ -50,8 +52,23 @@ async function docx(file: File, slots: number): Promise<ImportedDocument> {
       }),
     },
   );
-  const markdown = htmlToMarkdown(html);
+  let markdown = htmlToMarkdown(html);
   const warnings: string[] = [];
+  // A flowchart drawn with Word shapes: the text extraction above holds only
+  // the words in the boxes; the arrows are read from the drawing itself.
+  const xml = await (await JSZip.loadAsync(buffer)).file("word/document.xml")?.async("string");
+  const drawings = xml ? readFlowDrawings(xml).filter((d) => d.flows.length >= 2) : [];
+  if (drawings.length) {
+    const drawn = new Set(drawings.flatMap((d) => [...d.shapes.map((s) => s.text), ...d.flows.map((f) => f.label ?? ""), ...d.notes]).filter(Boolean));
+    const rest = markdown
+      .split(/\n{2,}/)
+      .filter((para) => !drawn.has(para.replace(/[*_]/g, "").replace(/\s+/g, " ").trim()))
+      .join("\n\n")
+      .trim();
+    markdown = [drawingsToMarkdown(drawings), rest && `## Weitere Angaben aus dem Dokument\n\n${rest}`].filter(Boolean).join("\n\n");
+    const counts = drawings.map((d) => `${d.shapes.length} Formen, ${d.flows.length} Pfeile`).join(" und ");
+    warnings.push(`Ablaufzeichnung erkannt (${counts}) – Schritte, Entscheidungen und Pfeile wurden aus der Zeichnung übernommen.`);
+  }
   // Pictures (a drawn flowchart, a photo of the board) go to the AI as images; icons and logos are skipped.
   const images: ImageAttachment[] = [];
   let skipped = 0;

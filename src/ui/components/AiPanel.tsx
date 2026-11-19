@@ -13,6 +13,7 @@ export function AiPanel() {
   const busy = useEditor((s) => s.aiBusy);
   const progress = useEditor((s) => s.aiProgress);
   const selfCorrect = useEditor((s) => s.selfCorrect);
+  const offlineOffer = useEditor((s) => s.offlineOffer);
   const [tab, setTab] = useState<"generate" | "review" | "describe">("generate");
   // Kept in the store: it is saved with the process in the library.
   const text = useEditor((s) => s.inputText);
@@ -139,6 +140,11 @@ export function AiPanel() {
             <input type="checkbox" checked={selfCorrect} onChange={(e) => store.getState().setSelfCorrect(e.target.checked)} />
             <span>Normverstösse automatisch korrigieren lassen (kostet dann eine zweite KI-Anfrage)</span>
           </label>
+          {offlineOffer && !busy && (
+            <button className="offline-offer" onClick={() => void store.getState().generate(offlineOffer, { offline: true })} title="Regelbasierter Parser ohne KI: versteht nur einfache, nummerierte Schrittlisten – keine Zeichnungen, Bilder oder Fliesstext">
+              Ohne KI versuchen (Regel-Parser, nur einfache Schrittlisten)
+            </button>
+          )}
           {progress && <p className="muted progress">{progress}</p>}
 
           <h4>Per Anweisung aktualisieren</h4>
