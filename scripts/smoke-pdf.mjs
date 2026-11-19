@@ -34,7 +34,7 @@ const steps = await page.locator(".desc-steps li").count();
 console.log("description steps:", steps);
 await page.screenshot({ path: "scripts/pdf-01-description.png" });
 
-const [download] = await Promise.all([page.waitForEvent("download"), page.locator(".desc-actions button", { hasText: "PDF exportieren" }).click()]);
+const [download] = await Promise.all([page.waitForEvent("download"), page.locator(".desc-actions button", { hasText: "PDF (ausführlich)" }).click()]);
 await download.saveAs(outPdf);
 const head = readFileSync(outPdf).subarray(0, 5).toString();
 console.log("pdf:", download.suggestedFilename(), head);

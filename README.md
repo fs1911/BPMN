@@ -148,6 +148,31 @@ to them — or loose arrows matched by position — and the short texts next to
 an arrow as its label. The AI gets every shape and arrow as a list and is told
 to follow it exactly.
 
+**Dictation.** *🎤 Diktieren* writes what you say into the text field (browser
+speech recognition: Chrome, Edge, Safari; "neuer Absatz" / "neue Zeile" break
+lines). Chrome and Edge send the audio to Google / Microsoft for recognition;
+FlowCraft never receives audio. The text can be corrected before generating.
+
+**Systems in the diagram.** The AI lists, per step, the IT systems it is done
+in (Abacus, DocuWare, Sorba, A3, SAP, …). Each appears as a data store symbol
+directly below its step, linked by a data association (BPMN
+`dataOutputAssociation`); the layout reserves the room (`src/core/layout/artifacts.ts`),
+so nothing overlaps, and the links survive export, import, cleanup and AI edits.
+
+**Review → diagram.** A click on an open question, an assumption, a quality
+hint, a role, system or decision in *Überprüfung*, or on a step or open point
+in *Beschreibung*, selects and highlights the element(s) in the diagram. The
+AI names the elements each question is about.
+
+**Process document and release.** *Beschreibung* holds the profile —
+purpose, scope, process owner (filled by the AI when the text states them) —
+and the release: name → version n with date, saved as a library version. Any
+later change to the diagram shows "seither geändert". *Prozessdokument PDF /
+Word* is compact: title, the profile with version/release and the diagram
+(landscape; PDF as vector graphics, Word with the diagram as image and editable
+text); unreleased documents are marked ENTWURF. The detailed description stays
+available as *PDF (ausführlich)*.
+
 **No silent fallback.** If the AI is not reachable (login expired, no key,
 service error), nothing is generated: the chat says why, and a button offers
 the rule-based parser explicitly (it understands only simple step lists).

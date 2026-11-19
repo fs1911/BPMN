@@ -1,9 +1,19 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DescriptionPanel } from "./DescriptionPanel";
 import { useEditor } from "@state/store";
 import { ai } from "@core/index";
 import { documentToMarkdown } from "../import/document";
 import { imagesLeft } from "../import/images";
+import { appendDictated, dictationSupported, startDictation, type Dictation } from "../import/dictation";
+import { elementsForText, elementsNamed, showElements } from "../bpmn/locate";
+
+/** Click on a point of the review: show what and where it means in the diagram. */
+function locate(text: string, ids: string[] = [], exact = false) {
+  const m = useEditor.getState().modeler;
+  if (!m) return;
+  const found = ids.length ? ids : exact ? [...elementsNamed(m, text), ...elementsForText(m, text)] : elementsForText(m, text);
+  if (!showElements(m, found)) useEditor.getState().showToast("Dazu gibt es im Diagramm keine passende Stelle.");
+}
 
 
 export function AiPanel() {
@@ -23,6 +33,27 @@ export function AiPanel() {
   const [importNote, setImportNote] = useState<{ text: string; error?: boolean }>();
   const [dragOver, setDragOver] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const dictation = useRef<Dictation>();
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState("");
+  const toggleDictation = () => {
+    if (dictation.current) {
+      dictation.current.stop();
+      return;
+    }
+    setImportNote(undefined);
+    dictation.current = startDictation({
+      onText: (t) => setText(appendDictated(store.getState().inputText, t)),
+      onInterim: setInterim,
+      onEnd: (error) => {
+        dictation.current = undefined;
+        setListening(false);
+        if (error) setImportNote({ text: error, error: true });
+      },
+    });
+    setListening(!!dictation.current);
+  };
+  useEffect(() => () => dictation.current?.stop(), []);
   const tooLong = text.length > ai.MAX_TEXT_CHARS;
   const images = useEditor((s) => s.inputImages);
 
@@ -75,7 +106,20 @@ export function AiPanel() {
             <button disabled={busy || !!importing} onClick={() => fileInput.current?.click()}>
               {importing ? `Lese ${importing}…` : "Word / PDF / Foto laden"}
             </button>
-            <span className="muted">oder Dateien ins Textfeld ziehen</span>
+            <button
+              className={`dictate${listening ? " on" : ""}`}
+              disabled={busy || !dictationSupported()}
+              aria-pressed={listening}
+              onClick={toggleDictation}
+              title={
+                dictationSupported()
+                  ? "Prozess frei erzählen – der Text erscheint im Feld und lässt sich vor dem Generieren korrigieren. „neuer Absatz“ / „neue Zeile“ trennen Abschnitte. Hinweis: Chrome und Edge schicken die Aufnahme zur Erkennung an Google bzw. Microsoft."
+                  : "Spracheingabe wird von diesem Browser nicht unterstützt (Chrome, Edge oder Safari verwenden)."
+              }
+            >
+              {listening ? "■ Diktat beenden" : "🎤 Diktieren"}
+            </button>
+            {!listening && <span className="muted">oder hineinziehen</span>}
             <input
               ref={fileInput}
               type="file"
@@ -108,6 +152,11 @@ export function AiPanel() {
             }}
             placeholder="Arbeitsanweisung, E-Mail, Besprechungsnotizen oder Schrittliste einfügen – oder Word, PDF oder Fotos (Whiteboard, Notizen, Skizze) laden…"
           />
+          {listening && (
+            <p className="dictation-live" aria-live="polite">
+              <span className="rec-dot" /> Hört zu… {interim && <em>{interim}</em>}
+            </p>
+          )}
           {importNote && <p className={`import-note${importNote.error ? " error" : ""}`}>{importNote.text}</p>}
           <p className={`char-count${tooLong ? " error" : ""}`}>
             {text.length.toLocaleString("de-CH")} / {ai.MAX_TEXT_CHARS.toLocaleString("de-CH")} Zeichen{tooLong ? " – zu lang, bitte kürzen" : ""}
@@ -195,7 +244,13 @@ export function AiPanel() {
               {review.findings && review.findings.length > 0 && (
                 <div className="review-block findings">
                   <h5>Qualitätshinweise</h5>
-                  <ul>{review.findings.map((f, i) => <li key={i}>{f}</li>)}</ul>
+                  <ul>
+                    {review.findings.map((f, i) => (
+                      <li key={i} className="locatable" onClick={() => locate(f)} title="Im Diagramm zeigen">
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
               <ReviewList title="Rollen / Bahnen" items={review.roles} />
@@ -209,7 +264,13 @@ export function AiPanel() {
               {review.assumptions.length > 0 && (
                 <div className="review-block assumptions">
                   <h5>Getroffene Annahmen</h5>
-                  <ul>{review.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+                  <ul>
+                    {review.assumptions.map((a, i) => (
+                      <li key={i} className="locatable" onClick={() => locate(a)} title="Im Diagramm zeigen">
+                        {a}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </>
@@ -241,7 +302,10 @@ function OpenQuestions({ questions, busy, progress }: { questions: ai.Ambiguity[
       <ol className="questions">
         {questions.map((q) => (
           <li key={q.question}>
-            <div className="q-text">{q.about && <b>{q.about}: </b>}{q.question}</div>
+            <div className="q-text locatable" onClick={() => locate(`${q.about} ${q.question}`, q.elementIds)} title="Im Diagramm zeigen, worum es geht">
+              {q.about && <b>{q.about}: </b>}
+              {q.question} <span className="locate-pin" aria-hidden>📍</span>
+            </div>
             {q.options && q.options.length > 0 && (
               <div className="q-options">
                 {q.options.map((o) => (
@@ -272,7 +336,13 @@ function ReviewList({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="review-block">
       <h5>{title}</h5>
-      <div className="tags">{items.map((it, i) => <span key={i} className="tag">{it}</span>)}</div>
+      <div className="tags">
+        {items.map((it, i) => (
+          <button key={i} className="tag locatable" onClick={() => locate(it, [], true)} title="Im Diagramm zeigen">
+            {it}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

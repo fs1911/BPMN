@@ -994,7 +994,7 @@ function layoutScopeInner(model: BpmnModel, scope: string, options: Partial<Layo
 
   const layoutNodes = Object.keys(adj.outgoing).filter((id) => {
     const n = model.nodes[id];
-    return n && n.type !== "boundaryEvent" && n.type !== "textAnnotation";
+    return n && n.type !== "boundaryEvent" && n.type !== "textAnnotation" && n.type !== "dataStoreReference" && n.type !== "dataObjectReference";
   });
   const inLayout = new Set(layoutNodes);
   const filteredAdj: Adjacency = { outgoing: {}, incoming: {} };
@@ -1198,7 +1198,7 @@ export function contentBounds(model: BpmnModel, scope: string): { x: number; y: 
 export const __layeredInternals = {
   prepare(model: BpmnModel, scope: string) {
     const adj = buildAdjacency(model, { scope, types: ["sequenceFlow"] });
-    const nodes = Object.keys(adj.outgoing).filter((id) => model.nodes[id] && model.nodes[id].type !== "boundaryEvent");
+    const nodes = Object.keys(adj.outgoing).filter((id) => model.nodes[id] && !["boundaryEvent", "textAnnotation", "dataStoreReference", "dataObjectReference"].includes(model.nodes[id].type));
     const set = new Set(nodes);
     const fadj: Adjacency = { outgoing: {}, incoming: {} };
     for (const id of nodes) {

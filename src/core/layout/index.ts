@@ -3,10 +3,12 @@ import { placeExternalPools, routeMessageFlows, routeScope, RouteOptions } from 
 import { LayoutOptions, LayoutResult, contentBounds, fitLabelSizes, layoutScope } from "./layered";
 import { placeLabels } from "./labels";
 import { measureLayout } from "./metrics";
+import { artifactLinks, placeArtifacts, reserveArtifactSpace, routeArtifactLinks } from "./artifacts";
 
 export * from "./layered";
 export { placeLabels } from "./labels";
 export { measureLayout } from "./metrics";
+export { STORE_SIZE } from "./artifacts";
 export type { LayoutMetrics } from "./metrics";
 
 export interface AutoLayoutOptions {
@@ -28,6 +30,9 @@ export function autoLayout(
   opts: AutoLayoutOptions = {},
 ): LayoutResult {
   fitLabelSizes(model, scope);
+  // Systems / data next to their step: room is reserved during layout.
+  const links = artifactLinks(model, scope);
+  reserveArtifactSpace(model, links);
   const hasLanes = (model.processes[scope]?.lanes.length ?? 0) > 0;
   const small = Object.keys(model.nodes).length <= 150;
   const edgePolicies: Array<"source" | "target"> = opts.layout?.longEdgeLane
@@ -59,6 +64,7 @@ export function autoLayout(
     if (!best || score < best.score) best = { model: candidate, result, score };
   }
   if (best!.model !== model) copyGeometry(best!.model, model);
+  placeArtifacts(model, links);
 
   placeExternalPools(model, scope);
   routeMessageFlows(model);
@@ -97,6 +103,7 @@ function copyGeometry(from: BpmnModel, to: BpmnModel): void {
 /** Re-route only (flow cleanup) without moving any shape. */
 export function rerouteOnly(model: BpmnModel, scope = model.rootProcessId, opts: AutoLayoutOptions = {}): void {
   routeScope(model, scope, opts.routing);
+  routeArtifactLinks(model);
   routeMessageFlows(model);
   placeLabels(model, scope);
 }

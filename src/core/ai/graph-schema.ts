@@ -51,6 +51,8 @@ export interface GraphNodeIR {
   attachedTo: string;
   /** boundaryEvent: whether it stops the activity (true for every other node). */
   interrupting: boolean;
+  /** IT systems / programs this step is done in or writes to (names as in "systems"); [] if none */
+  systems: string[];
 }
 
 export interface GraphFlowIR {
@@ -63,6 +65,10 @@ export interface GraphFlowIR {
 
 export interface GraphIR {
   title: string;
+  /** process profile, if the text states it ("" otherwise) */
+  purpose: string;
+  scope: string;
+  owner: string;
   lang: "de" | "en";
   lanes: { id: string; name: string }[];
   nodes: GraphNodeIR[];
@@ -74,7 +80,8 @@ export interface GraphIR {
   systems: string[];
   dataObjects: string[];
   assumptions: string[];
-  ambiguities: { about: string; question: string; options: string[] }[];
+  /** elements: ids of the nodes a question is about ([] if it concerns the whole process) */
+  ambiguities: { about: string; question: string; options: string[]; elements: string[] }[];
 }
 
 /** JSON schema for structured outputs. Every field is required so the model
@@ -82,9 +89,12 @@ export interface GraphIR {
 export const GRAPH_IR_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["title", "lang", "lanes", "nodes", "flows", "pools", "messageFlows", "systems", "dataObjects", "assumptions", "ambiguities"],
+  required: ["title", "purpose", "scope", "owner", "lang", "lanes", "nodes", "flows", "pools", "messageFlows", "systems", "dataObjects", "assumptions", "ambiguities"],
   properties: {
     title: { type: "string" },
+    purpose: { type: "string" },
+    scope: { type: "string" },
+    owner: { type: "string" },
     lang: { type: "string", enum: ["de", "en"] },
     lanes: {
       type: "array",
@@ -100,7 +110,7 @@ export const GRAPH_IR_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "type", "name", "lane", "event", "source", "attachedTo", "interrupting"],
+        required: ["id", "type", "name", "lane", "event", "source", "attachedTo", "interrupting", "systems"],
         properties: {
           id: { type: "string" },
           type: { type: "string", enum: [...GRAPH_NODE_TYPES] },
@@ -110,6 +120,7 @@ export const GRAPH_IR_SCHEMA = {
           source: { type: "string" },
           attachedTo: { type: "string" },
           interrupting: { type: "boolean" },
+          systems: { type: "array", items: { type: "string" } },
         },
       },
     },
@@ -153,11 +164,12 @@ export const GRAPH_IR_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["about", "question", "options"],
+        required: ["about", "question", "options", "elements"],
         properties: {
           about: { type: "string" },
           question: { type: "string" },
           options: { type: "array", items: { type: "string" } },
+          elements: { type: "array", items: { type: "string" } },
         },
       },
     },
@@ -168,7 +180,7 @@ export const GRAPH_IR_SCHEMA = {
 const GRAPH_RULES = `Faithfulness
 - Model only what the text states or clearly implies. Do not invent activities, approvals or systems.
 - Structural elements the text implies but does not name (start/end events, join gateways, an end event for a path that just stops) are fine.
-- Anything you had to decide without support from the text goes into "assumptions". Anything the reader must clarify goes into "ambiguities" (with concrete answer options where possible).
+- Anything you had to decide without support from the text goes into "assumptions". Anything the reader must clarify goes into "ambiguities" (with concrete answer options where possible); its "elements" lists the ids of the nodes the question is about, so the reader can be shown the spot in the diagram ([] only if it concerns the whole process). In "assumptions", name the affected elements with their exact names in quotes („…“).
 - For every activity, event and split gateway, "source" is a short verbatim quote (a few words) from the input that justifies it. Use "" only for purely structural nodes such as joins.
 
 Structure
@@ -197,7 +209,7 @@ Naming
 
 Lanes and types
 - A lane is a role, person or department that performs at least one activity. Recipients who only receive something do not get a lane.
-- IT systems and programs the text names (ERP, accounting, document management, e.g. "Abacus", "DocuWare", "SAP") go into "systems" with their exact name. A step done by a person IN a system stays a userTask in that person's lane; keep the system's name in the step ("Rechnung im Abacus verbuchen"), so the diagram can show which system it uses. Systems are never lanes for human work.
+- IT systems and programs the text names (ERP, accounting, document management, construction software, e.g. "Abacus", "DocuWare", "SAP", "Sorba", "A3") go into "systems" with their exact name. For every step done in, or writing to, such a system, list it in that node's "systems" (the diagram shows it as a data store next to the step); [] otherwise. A step done by a person IN a system stays a userTask in that person's lane. Systems are never lanes for human work.
 - Automated steps done by an IT system use serviceTask; put them in a lane named "System" (or the system's name) only if there are such steps. Human work is userTask (or manualTask for physical work like packing/shipping); sending a message to an external party is sendTask.
 - If the text names no actors at all, return an empty "lanes" array and "" as each node's lane.
 
@@ -206,6 +218,8 @@ External parties
 - Every message between the process and an external party is one "messageFlows" entry, named after the message ("Ausschreibung", "Offerte", "Rückfragen"): from the sending element (usually a sendTask) to the pool id, or from the pool id to the receiving element (a message start event, a message intermediateCatchEvent or a receiveTask).
 - Flows inside the process are sequence flows ("flows"); flows to or from a pool are only ever message flows.
 - If the text names no external party, return empty "pools" and "messageFlows".
+
+Process profile: "purpose" (Zweck), "scope" (Geltungsbereich: where/for whom it applies) and "owner" (Prozesseigner / Zuständigkeit: the role or unit responsible for the process) — one short sentence each, taken from the text if it states them; "" if it does not (never invent them). "title" names the process ("Kreditoren verarbeiten"), never "Start" or a heading word.
 
 "lang" is the language of the input ("de" or "en"); all names, conditions, assumptions and questions are in that language.`;
 

@@ -4,6 +4,7 @@ import {
   EventDefinitionType,
   FlowNode,
   Lane,
+  isActivity,
 } from "../model";
 
 /**
@@ -131,6 +132,19 @@ function writeScopeChildren(w: Writer, model: BpmnModel, scopeId: string): void 
     const t = model.nodes[e.target];
     if (s?.parent === scopeId && t?.parent === scopeId) writeSequenceFlow(w, e);
   }
+  for (const e of Object.values(model.edges)) {
+    if (!isPlainAssociation(model, e) || model.nodes[e.source]?.parent !== scopeId) continue;
+    w.line(`<bpmn:association id="${esc(e.id)}" sourceRef="${esc(e.source)}" targetRef="${esc(e.target)}" />`);
+  }
+}
+
+const isDataNode = (n: FlowNode | undefined) => n?.type === "dataStoreReference" || n?.type === "dataObjectReference";
+
+/** Associations that are not a step's data link: notes (text annotations) and the like. */
+function isPlainAssociation(model: BpmnModel, e: Edge): boolean {
+  if (e.type !== "association") return false;
+  const s = model.nodes[e.source];
+  return !(s && isActivity(s.type) && isDataNode(model.nodes[e.target]));
 }
 
 function writeSequenceFlow(w: Writer, e: Edge): void {
@@ -165,7 +179,14 @@ function writeNode(w: Writer, model: BpmnModel, n: FlowNode): void {
   if (n.eventDefinition && n.eventDefinition !== "none") {
     inner.push(`<bpmn:${EVENT_DEF_TAG[n.eventDefinition]} />`);
   }
-  // markers
+  // systems / data the step writes to (data stores and objects linked by an association)
+  if (isActivity(n.type)) {
+    for (const e of Object.values(model.edges)) {
+      if (e.type !== "association" || e.source !== n.id || !isDataNode(model.nodes[e.target])) continue;
+      inner.push(`<bpmn:dataOutputAssociation id="${esc(e.id)}"><bpmn:targetRef>${esc(e.target)}</bpmn:targetRef></bpmn:dataOutputAssociation>`);
+    }
+  }
+  // markers (after the data associations, as the schema orders them)
   if (n.markers?.loop) inner.push(`<bpmn:standardLoopCharacteristics />`);
   if (n.markers?.multiInstance) {
     inner.push(`<bpmn:multiInstanceLoopCharacteristics isSequential="${n.markers.multiInstance === "sequential"}" />`);

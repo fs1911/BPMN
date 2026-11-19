@@ -201,6 +201,16 @@ function importNode(model: BpmnModel, type: FlowElementType, raw: any, scopeId: 
     markers: markers.loop || markers.multiInstance ? markers : undefined,
     documentation: typeof raw.documentation === "string" ? raw.documentation : raw.documentation?.["#text"],
   };
+  // Data the step writes to / reads from (data stores, data objects): kept as associations.
+  const ref = (v: any) => (typeof v === "string" ? v : v?.["#text"]);
+  for (const a of arr<any>(raw.dataOutputAssociation)) {
+    const target = ref(a.targetRef);
+    if (a["@_id"] && target) model.edges[a["@_id"]] = { id: a["@_id"], type: "association", source: id, target };
+  }
+  for (const a of arr<any>(raw.dataInputAssociation)) {
+    const source = ref(arr<any>(a.sourceRef)[0]);
+    if (a["@_id"] && source) model.edges[a["@_id"]] = { id: a["@_id"], type: "association", source, target: id };
+  }
   // Nested subprocess content
   if (type === "subProcess") {
     importScope(model, raw, id);

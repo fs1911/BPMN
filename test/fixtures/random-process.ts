@@ -29,7 +29,7 @@ export function randomProcess(n: number, unstructured: boolean): GraphIR {
   };
   const node = (type: GraphIR["nodes"][number]["type"], name = "", event: GraphIR["nodes"][number]["event"] = "none") => {
     const nid = `n${id++}`;
-    nodes.push({ id: nid, type, name, lane: nextLane(), event, source: "", attachedTo: "", interrupting: true });
+    nodes.push({ id: nid, type, name, lane: nextLane(), event, source: "", attachedTo: "", interrupting: true, systems: [] });
     return nid;
   };
   const flow = (from: string, to: string, condition = "") => flows.push({ from, to, condition, isDefault: false });
@@ -135,6 +135,6 @@ export function randomProcess(n: number, unstructured: boolean): GraphIR {
       if (a && b && a !== b) flow(a, b, "Sonderfall");
     }
   }
-  return { title: "Stresstest", lang: "de", lanes, nodes, flows, pools: [], messageFlows: [], systems: [], dataObjects: [], assumptions: [], ambiguities: [] };
+  return { title: "Stresstest", purpose: "", scope: "", owner: "", lang: "de", lanes, nodes, flows, pools: [], messageFlows: [], systems: [], dataObjects: [], assumptions: [], ambiguities: [] };
 }
 

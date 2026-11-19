@@ -66,7 +66,8 @@ export function routeScope(model: BpmnModel, scope: string, options: Partial<Rou
   const edges = Object.values(model.edges).filter((e) => {
     const s = model.nodes[e.source];
     const t = model.nodes[e.target];
-    return s && t && s.parent === scope && t.parent === scope && e.type !== "messageFlow";
+    // associations to systems / data are drawn by layout/artifacts.ts
+    return s && t && s.parent === scope && t.parent === scope && e.type === "sequenceFlow";
   });
   if (!scopeNodes.length) return;
 
@@ -212,7 +213,7 @@ function buildGrid(model: BpmnModel, scope: string, nodes: FlowNode[], opts: Rou
 
   const nodeCells = new Map<string, [number, number, number, number]>();
   for (const n of nodes) {
-    if (n.type === "boundaryEvent") continue;
+    if (n.type === "boundaryEvent" || n.type === "dataStoreReference" || n.type === "dataObjectReference" || n.type === "textAnnotation") continue;
     const r = inflate(n.bounds, opts.clearance);
     nodeCells.set(n.id, [
       Math.max(0, Math.floor((r.x - originX) / step)),

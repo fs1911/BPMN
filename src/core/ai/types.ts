@@ -51,6 +51,8 @@ export interface Ambiguity {
   question: string;
   /** optional modeling alternatives offered to the user. */
   options?: string[];
+  /** diagram elements the question is about (shown when it is clicked) */
+  elementIds?: string[];
 }
 
 export interface ProcessIR {
@@ -66,6 +68,8 @@ export interface ProcessIR {
 }
 
 export interface ReviewReport {
+  /** process profile the AI found in the text (purpose, scope, owner) */
+  profile?: { purpose: string; scope: string; owner: string };
   roles: string[];
   systems: string[];
   dataObjects: string[];

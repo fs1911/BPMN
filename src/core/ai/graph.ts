@@ -1,4 +1,4 @@
-import { autoLayout } from "../layout";
+import { STORE_SIZE, autoLayout } from "../layout";
 import {
   BpmnModel,
   EventDefinitionType,
@@ -7,6 +7,7 @@ import {
   createNode,
   createParticipant,
   emptyModel,
+  isActivity,
 } from "../model";
 import { assessModel } from "./quality";
 import { MappingResult, removeEmptyLanes } from "./map";
@@ -47,6 +48,7 @@ export const structural = (id: string, type: GraphNodeType, name = "", lane = ""
   source: "",
   attachedTo: "",
   interrupting: true,
+  systems: [],
 });
 const EVENT_SET = new Set<string>(GRAPH_EVENT_KINDS);
 
@@ -101,6 +103,7 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
       source: str(o.source),
       attachedTo: type === "boundaryEvent" ? xmlId(str(o.attachedTo)) : "",
       interrupting: type !== "boundaryEvent" || o.interrupting !== false,
+      systems: [...new Set(strArr(o.systems))],
     });
   }
 
@@ -208,6 +211,9 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
   return {
     ir: {
       title: str(r.title),
+      purpose: str(r.purpose),
+      scope: str(r.scope),
+      owner: str(r.owner),
       lang,
       lanes,
       nodes,
@@ -218,7 +224,7 @@ export function sanitizeGraphIR(raw: unknown): SanitizeResult {
       dataObjects: strArr(r.dataObjects),
       assumptions: strArr(r.assumptions),
       ambiguities: (Array.isArray(r.ambiguities) ? r.ambiguities : [])
-        .map((a: any) => ({ about: str(a?.about), question: str(a?.question), options: strArr(a?.options) }))
+        .map((a: any) => ({ about: str(a?.about), question: str(a?.question), options: strArr(a?.options), elements: strArr(a?.elements).map(xmlId).filter((id) => nodeIds.has(id)) }))
         .filter((a) => a.question),
     },
     repairs,
@@ -336,6 +342,21 @@ export function mapGraphToModel(irIn: GraphIR, opts: MapGraphOptions = {}): Mapp
     removeEmptyLanes(model);
   }
 
+  // Systems a step is done in: a data store symbol below the step (layout/artifacts.ts).
+  // Created after the lanes are filled: data stores are no lane members.
+  for (const n of ir.nodes) {
+    const task = model.nodes[idMap[n.id]];
+    if (!task || !isActivity(task.type)) continue;
+    n.systems.forEach((sys, k) => {
+      const store = createNode(model, "dataStoreReference", {
+        id: opts.keepIds ? `${task.id}_sys${k + 1}` : undefined,
+        name: sys,
+        bounds: { x: 0, y: 0, ...STORE_SIZE },
+      });
+      createEdge(model, "association", task.id, store.id);
+    });
+  }
+
   opts.beforeLayout?.(model);
   autoLayout(model, model.rootProcessId, opts.preferOrder ? { layout: { preferOrder: opts.preferOrder } } : {});
 
@@ -349,7 +370,8 @@ export function mapGraphToModel(irIn: GraphIR, opts: MapGraphOptions = {}): Mapp
 
   const review: ReviewReport = {
     roles: Object.values(model.lanes).map((l) => l.name ?? ""),
-    systems: ir.systems,
+    systems: [...new Set([...ir.systems, ...ir.nodes.flatMap((n) => n.systems)])],
+    profile: ir.purpose || ir.scope || ir.owner ? { purpose: ir.purpose, scope: ir.scope, owner: ir.owner } : undefined,
     dataObjects: ir.dataObjects,
     decisions,
     loops,
@@ -357,7 +379,12 @@ export function mapGraphToModel(irIn: GraphIR, opts: MapGraphOptions = {}): Mapp
     approvals: ir.nodes.filter((n) => /freigab|freigeb|genehmig|approv/i.test(n.name) && !n.type.endsWith("Gateway")).map((n) => n.name),
     checks: ir.nodes.filter((n) => /prüf|kontroll|check|verif|review/i.test(n.name) && !n.type.endsWith("Gateway")).map((n) => n.name),
     assumptions: ir.assumptions,
-    ambiguities: ir.ambiguities.map<Ambiguity>((a) => ({ about: a.about, question: a.question, options: a.options.length ? a.options : undefined })),
+    ambiguities: ir.ambiguities.map<Ambiguity>((a) => ({
+      about: a.about,
+      question: a.question,
+      options: a.options.length ? a.options : undefined,
+      ...(a.elements?.length ? { elementIds: a.elements.map((id) => idMap[id]).filter(Boolean) } : {}),
+    })),
     provenance,
     confidence: assessment.confidence,
     findings: [...(opts.repairs ?? []), ...assessment.findings],

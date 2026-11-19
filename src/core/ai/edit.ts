@@ -27,6 +27,10 @@ export function modelToGraphIR(model: BpmnModel): GraphIR {
   const title = proc?.name || model.name || Object.values(model.participants)[0]?.name || "";
   return {
     title,
+    // the profile is kept by the app, not edited by the AI
+    purpose: "",
+    scope: "",
+    owner: "",
     lang: guessLang(nodes),
     lanes: laneIds.map((id) => ({ id, name: model.lanes[id]?.name ?? "" })),
     nodes: nodes.map((n) => ({
@@ -38,6 +42,7 @@ export function modelToGraphIR(model: BpmnModel): GraphIR {
       source: n.provenance ?? "",
       attachedTo: n.type === "boundaryEvent" && n.attachedToRef && ids.has(n.attachedToRef) ? n.attachedToRef : "",
       interrupting: n.type !== "boundaryEvent" || n.cancelActivity !== false,
+      systems: systemsOf(model, n.id),
     })),
     flows: Object.values(model.edges)
       .filter((e) => e.type === "sequenceFlow" && ids.has(e.source) && ids.has(e.target))
@@ -47,11 +52,21 @@ export function modelToGraphIR(model: BpmnModel): GraphIR {
       .filter((e) => e.type === "messageFlow")
       .filter((e) => (ids.has(e.source) && isExternal(model, e.target)) || (isExternal(model, e.source) && ids.has(e.target)))
       .map((e) => ({ from: e.source, to: e.target, name: e.name ?? "" })),
-    systems: [],
+    systems: [...new Set(Object.values(model.nodes).filter((n) => n.parent === scope && n.type === "dataStoreReference" && n.name).map((n) => n.name!))],
     dataObjects: [],
     assumptions: [],
     ambiguities: [],
   };
+}
+
+/** Systems shown next to a step: data stores linked to it by an association. */
+function systemsOf(model: BpmnModel, id: string): string[] {
+  const names = Object.values(model.edges)
+    .filter((e) => e.type === "association" && (e.source === id || e.target === id))
+    .map((e) => model.nodes[e.source === id ? e.target : e.source])
+    .filter((n) => n?.type === "dataStoreReference" && n.name)
+    .map((n) => n!.name!);
+  return [...new Set(names)];
 }
 
 /** Pools without a process of their own (black boxes for external parties). */

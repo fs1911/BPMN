@@ -76,6 +76,10 @@ export interface DescribeOptions {
   /** extra open points, e.g. AI ambiguities. */
   extraOpenPoints?: string[];
   date?: Date;
+  /** profile entered for the process document */
+  profile?: { purpose?: string; scope?: string; owner?: string };
+  /** "V2 · freigegeben am 19.11.2026 durch …" or "Entwurf" */
+  releaseText?: string;
 }
 
 const PLACEHOLDER = "(bitte ergänzen)";
@@ -220,10 +224,10 @@ export function describeProcess(model: BpmnModel, opts: DescribeOptions = {}): P
   return {
     title,
     header: [
-      { label: "Zweck", value: PLACEHOLDER },
-      { label: "Geltungsbereich", value: PLACEHOLDER },
-      { label: "Prozessverantwortlich", value: PLACEHOLDER },
-      { label: "Version / Freigabe", value: PLACEHOLDER },
+      { label: "Zweck", value: opts.profile?.purpose?.trim() || PLACEHOLDER },
+      { label: "Geltungsbereich", value: opts.profile?.scope?.trim() || PLACEHOLDER },
+      { label: "Prozesseigner", value: opts.profile?.owner?.trim() || PLACEHOLDER },
+      { label: "Version / Freigabe", value: opts.releaseText || PLACEHOLDER },
     ],
     date: (opts.date ?? new Date()).toISOString().slice(0, 10),
     summary,

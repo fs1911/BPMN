@@ -29,6 +29,9 @@ function g(title: string, lanes: string[], nodes: string[], flows: string[], eve
   const laneIds = Object.fromEntries(lanes.map((l, i) => [l, `l${i + 1}`]));
   return {
     title,
+    purpose: "",
+    scope: "",
+    owner: "",
     lang: "de",
     lanes: lanes.map((name, i) => ({ id: `l${i + 1}`, name })),
     nodes: nodes.map((spec) => {
@@ -44,6 +47,7 @@ function g(title: string, lanes: string[], nodes: string[], flows: string[], eve
         source: name,
         attachedTo: boundary ? at : "",
         interrupting: type !== "BN",
+        systems: [],
       };
     }),
     flows: flows.map((f) => {

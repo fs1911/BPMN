@@ -18,7 +18,7 @@ const HEAD_FILL: [number, number, number] = [232, 238, 246];
 const MARGIN = 14;
 
 /** The standard PDF fonts only cover Windows-1252; map the few characters we use outside it. */
-function pdfText(s: string): string {
+export function pdfText(s: string): string {
   return s
     .replace(/→/g, "›")
     .replace(/[≥]/g, ">=")
@@ -193,7 +193,7 @@ export async function buildProcessPdf(svg: string, d: ProcessDescription): Promi
   return doc.output("blob");
 }
 
-function heading(doc: JsPDF, text: string, x: number, y: number, size: number): void {
+export function heading(doc: JsPDF, text: string, x: number, y: number, size: number): void {
   doc.setFont("helvetica", "bold").setFontSize(size).setTextColor(...ACCENT);
   doc.text(text, x, y);
 }

@@ -14,7 +14,7 @@ import {
 import { buildProcessPdf, downloadBlob, fileBase } from "@ui/export/pdf";
 import { loadShowTaskTypes, saveShowTaskTypes, setShowTaskTypes } from "@ui/bpmn/plain-tasks";
 import { initialXml } from "@ui/bpmn/bridge";
-import { StoredProcess, newId } from "@core/library/library";
+import { ProcessMeta, StoredProcess, contentHash, emptyMeta, newId } from "@core/library/library";
 import type { ImageAttachment } from "@ui/import/images";
 import { addVersion, deleteProcess, getLastOpened, getProcess, listProcesses, putProcess, requestPersistence, setLastOpened } from "@ui/library/db";
 
@@ -70,11 +70,20 @@ interface EditorState {
   aiProgress?: string;
   busy: boolean;
   /** an AI suggestion shown as a preview, awaiting accept/reject. */
-  pending?: { prevXml: string; description: string; marked?: string[]; prevReview?: ai.ReviewReport; newDoc?: boolean; prevDoc?: CurrentDoc };
+  pending?: { prevXml: string; description: string; marked?: string[]; prevReview?: ai.ReviewReport; newDoc?: boolean; prevDoc?: CurrentDoc; prevMeta?: ProcessMeta };
 
   /** AI input field (saved with the process) */
   inputText: string;
   setInputText: (t: string) => void;
+  /** purpose, scope, owner and release of the process (process document) */
+  meta: ProcessMeta;
+  setMeta: (patch: Partial<Omit<ProcessMeta, "release">>) => void;
+  /** hash of the diagram on screen (to tell whether it changed since the release) */
+  diagramHash?: string;
+  /** release the process: next version, today, by whom; saves a library version */
+  releaseProcess: (by: string) => Promise<void>;
+  /** compact process document (profile + diagram) */
+  exportProcessDocument: (format: "pdf" | "docx") => Promise<void>;
   /** photos / page images sent to the AI with the text (not saved in the library: too large) */
   inputImages: ImageAttachment[];
   setInputImages: (images: ImageAttachment[]) => void;
@@ -205,6 +214,40 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
   inputImages: [],
   setInputImages: (images) => set({ inputImages: images }),
+  meta: emptyMeta(),
+  setMeta: (patch) => {
+    set({ meta: { ...get().meta, ...patch } });
+    get().noteChange();
+    void get().refreshDescription();
+  },
+  releaseProcess: async (by) => {
+    const m = get().modeler;
+    if (!m || !by.trim()) return;
+    const hash = contentHash(await getXml(m));
+    const version = (get().meta.release?.version ?? 0) + 1;
+    set({ meta: { ...get().meta, release: { version, date: new Date().toISOString(), by: by.trim(), hash } }, diagramHash: hash });
+    await get().saveToLibrary();
+    await get().refreshDescription();
+    get().showToast(`✓ Version ${version} freigegeben durch ${by.trim()} – das Prozessdokument kann jetzt erstellt werden.`);
+  },
+  exportProcessDocument: async (format) => {
+    const m = get().modeler;
+    if (!m) return;
+    set({ busy: true });
+    try {
+      await get().refreshDescription();
+      const d = get().description!;
+      const { svg } = await m.saveSVG();
+      const doc = { title: d.title, header: d.header, date: d.date, released: releaseState(get()) === "released" };
+      const { buildProcessDocumentPdf, buildProcessDocumentDocx } = await import("@ui/export/process-document");
+      const blob = format === "pdf" ? await buildProcessDocumentPdf(svg, doc) : await buildProcessDocumentDocx(svg, doc);
+      downloadBlob(blob, `${fileBase(d.title)}${doc.released ? "" : "_Entwurf"}.${format}`);
+    } catch (err) {
+      alert(`Export fehlgeschlagen: ${(err as Error).message}`);
+    } finally {
+      set({ busy: false });
+    }
+  },
   libraryChanged: () => set((s) => ({ libraryVersion: s.libraryVersion + 1 })),
 
   noteChange: () => {
@@ -241,6 +284,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         xml,
         sourceText: s.inputText,
         review: s.aiReview ? JSON.parse(JSON.stringify(s.aiReview)) : undefined,
+        meta: JSON.parse(JSON.stringify(s.meta)),
         createdAt: s.doc.createdAt ?? now,
         updatedAt: now,
       };
@@ -300,6 +344,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       xml,
       sourceText: s.inputText,
       review: s.aiReview ? JSON.parse(JSON.stringify(s.aiReview)) : undefined,
+      meta: JSON.parse(JSON.stringify(s.meta)),
       createdAt: s.doc.createdAt ?? now,
       updatedAt: now,
     };
@@ -331,7 +376,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const m = get().modeler;
     if (!m) return;
     if (!opts.skipSave) await get().saveNow();
-    set({ doc: { name: "Neuer Prozess", nameAuto: true }, inputText: "", inputImages: [], aiReview: undefined, aiMessages: [], pending: undefined });
+    set({ doc: { name: "Neuer Prozess", nameAuto: true }, inputText: "", inputImages: [], meta: emptyMeta(), aiReview: undefined, aiMessages: [], pending: undefined });
     await m.importXML(initialXml());
     fitViewport(m);
     await markPristine();
@@ -350,6 +395,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       doc: { id: rec.id, name: rec.name, nameAuto: false, createdAt: rec.createdAt },
       inputText: rec.sourceText,
       inputImages: [],
+      meta: { ...emptyMeta(), ...rec.meta },
       aiReview: review,
       pending: undefined,
       saveState: "saved",
@@ -398,7 +444,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!m) return;
     try {
       const model = await getModelFromModeler(m);
-      set({ issues: [...simulationIssues(model), ...validate(model), ...layoutIssues(model)], description: describeProcess(model, { extraOpenPoints: clarifications(get().aiReview) }) });
+      set({ diagramHash: contentHash(await getXml(m)) });
+      set({ issues: [...simulationIssues(model), ...validate(model), ...layoutIssues(model)], description: describeProcess(model, describeOpts(get())) });
     } catch {
       /* mid-edit invalid XML; ignore */
     }
@@ -446,7 +493,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const m = get().modeler;
     if (!m) return;
     const model = await getModelFromModeler(m);
-    set({ description: describeProcess(model, { extraOpenPoints: clarifications(get().aiReview) }) });
+    set({ description: describeProcess(model, describeOpts(get())) });
   },
 
   exportPdf: async () => {
@@ -516,7 +563,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       const draft = get().doc;
       // The rejected draft had its own library entry: remove it and go back to the previous process.
       if (draft.id && draft.id !== prevDoc.id) await deleteProcess(draft.id).catch(() => undefined);
-      set((st) => ({ doc: prevDoc, libraryVersion: st.libraryVersion + 1 }));
+      set((st) => ({ doc: prevDoc, meta: s.pending!.prevMeta ?? emptyMeta(), libraryVersion: st.libraryVersion + 1 }));
       setLastOpened(prevDoc.id);
     }
     await m.importXML(s.pending.prevXml);
@@ -589,7 +636,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       const { model, review } = result;
       // A newly generated process goes into its own library entry instead of overwriting the open one.
       const prevDoc = get().doc;
-      set({ doc: { name: "Neuer Prozess", nameAuto: true } });
+      const prevMeta = get().meta;
+      set({ doc: { name: "Neuer Prozess", nameAuto: true }, meta: { ...emptyMeta(), ...review.profile } });
       await loadModelIntoModeler(m, model);
       await get().revalidate();
       const findings = review.findings?.length ? `\n⚠ ${review.findings.length} Qualitätshinweis(e) – siehe Überprüfung.` : "";
@@ -598,7 +646,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         aiReview: review,
         aiBusy: false,
         aiProgress: undefined,
-        pending: { prevXml, prevReview, newDoc: true, prevDoc, description: `Generierter Entwurf: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.loops.length} Schleife(n).` },
+        pending: { prevXml, prevReview, newDoc: true, prevDoc, prevMeta, description: `Generierter Entwurf: ${Object.keys(model.nodes).length} Elemente, ${review.roles.length} Rolle(n), ${review.loops.length} Schleife(n).` },
         aiMessages: [
           ...get().aiMessages,
           {
@@ -743,8 +791,26 @@ function enqueueSave(task: () => Promise<void>): Promise<void> {
 let lastSaved: { sig: string; xml: string } = { sig: "", xml: "" };
 
 /** Everything that is saved with a process; equal signature = nothing to save. */
-function signature(xml: string, s: { inputText: string; aiReview?: ai.ReviewReport }): string {
-  return `${xml}\u0000${s.inputText}\u0000${JSON.stringify(s.aiReview ?? null)}`;
+function signature(xml: string, s: { inputText: string; aiReview?: ai.ReviewReport; meta: ProcessMeta }): string {
+  return `${xml}\u0000${s.inputText}\u0000${JSON.stringify(s.aiReview ?? null)}\u0000${JSON.stringify(s.meta)}`;
+}
+
+/** "released": the diagram on screen is the released one; "changed": released, then edited; "draft": never released. */
+export function releaseState(s: { meta: ProcessMeta; diagramHash?: string }): "draft" | "released" | "changed" {
+  if (!s.meta.release) return "draft";
+  return s.diagramHash === s.meta.release.hash ? "released" : "changed";
+}
+
+export function releaseText(s: { meta: ProcessMeta; diagramHash?: string }): string {
+  const r = s.meta.release;
+  if (!r) return "Entwurf (noch nicht freigegeben)";
+  const date = new Date(r.date).toLocaleDateString("de-CH");
+  const base = `Version ${r.version} · freigegeben am ${date} durch ${r.by}`;
+  return releaseState(s) === "released" ? base : `${base} – seither geändert (Entwurf)`;
+}
+
+function describeOpts(s: { aiReview?: ai.ReviewReport; meta: ProcessMeta; diagramHash?: string }) {
+  return { extraOpenPoints: clarifications(s.aiReview), profile: s.meta, releaseText: releaseText(s) };
 }
 
 /**

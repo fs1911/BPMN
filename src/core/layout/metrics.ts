@@ -50,7 +50,10 @@ interface Seg {
 const EPS = 0.5;
 
 export function measureLayout(model: BpmnModel, scope = model.rootProcessId): LayoutMetrics {
-  const nodes = Object.values(model.nodes).filter((n) => n.parent === scope && n.type !== "boundaryEvent");
+  // systems / data / notes are placed after the flow layout (layout/artifacts.ts), not scored with it
+  const nodes = Object.values(model.nodes).filter(
+    (n) => n.parent === scope && n.type !== "boundaryEvent" && n.type !== "dataStoreReference" && n.type !== "dataObjectReference" && n.type !== "textAnnotation",
+  );
   const inScope = (id: string) => model.nodes[id]?.parent === scope || !!model.participants[id];
   const edges = Object.values(model.edges).filter(
     (e) =>

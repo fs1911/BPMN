@@ -3,6 +3,36 @@
  * lives in the UI layer (IndexedDB); this part is pure so it can be tested.
  */
 
+/** Process profile for the process document, and its release. */
+export interface ProcessMeta {
+  purpose: string;
+  scope: string;
+  owner: string;
+  release?: ProcessRelease;
+}
+
+export interface ProcessRelease {
+  /** 1, 2, 3 … */
+  version: number;
+  /** ISO date-time */
+  date: string;
+  by: string;
+  /** hash of the diagram that was released — any later change shows */
+  hash: string;
+}
+
+export const emptyMeta = (): ProcessMeta => ({ purpose: "", scope: "", owner: "" });
+
+/** Short, stable hash of a text (FNV-1a), to recognise an unchanged diagram. */
+export function contentHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
 export interface StoredProcess {
   id: string;
   name: string;
@@ -12,6 +42,8 @@ export interface StoredProcess {
   sourceText: string;
   /** AI review incl. open questions, as JSON-safe data */
   review?: unknown;
+  /** purpose, scope, owner and release (process document) */
+  meta?: ProcessMeta;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useEditor } from "@state/store";
 import { summarize } from "@core/index";
+import { showElements } from "@ui/bpmn/locate";
 
 const SEV_LABEL: Record<string, string> = { error: "Fehler", warning: "Hinweis", info: "Tipp" };
 const SEV_ICON: Record<string, string> = { error: "✕", warning: "!", info: "i" };
@@ -12,20 +13,9 @@ export function ValidationPanel() {
   const counts = summarize(issues);
 
   const locate = (elementId?: string, related: string[] = []) => {
-    if (!elementId) return;
     const modeler = store.getState().modeler;
-    if (!modeler) return;
-    const registry = modeler.get<any>("elementRegistry");
-    const el = registry.get(elementId);
-    if (!el) return;
     // Select the location and everything involved (e.g. the decision that causes a deadlock).
-    const all = [el, ...related.map((id) => registry.get(id)).filter((x: any) => x && !x.waypoints)];
-    modeler.get<any>("selection").select(all);
-    try {
-      modeler.get<any>("canvas").scrollToElement(el);
-    } catch {
-      /* older bpmn-js */
-    }
+    if (modeler && elementId) showElements(modeler, [elementId, ...related]);
   };
 
   if (!issues.length) {
